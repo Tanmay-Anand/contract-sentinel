@@ -20,21 +20,21 @@ ContractSentinel polls each of your registered services' `/v3/api-docs` (or any 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────┐
-│  Your Microservices                      │
-│  service-a:8080/v3/api-docs              │
-│  service-b:8081/v3/api-docs  ──────────► │  ContractSentinel Backend (Spring Boot)
-│  service-c:8082/v3/api-docs              │  • Polls & snapshots every 5 min
-└──────────────────────────────────────────┘  • SHA-256 dedup
+┌──────────────────────────────┐
+│  Your Microservices          │
+│  service-a:8080/v3/api-docs  │            
+│  service-b:8081/v3/api-docs  │ ──────────►  ContractSentinel Backend (Spring Boot) 
+│  service-c:8082/v3/api-docs  │              • Polls & snapshots every 5 min
+└──────────────────────────────┘              • SHA-256 dedup
                                               • OpenAPI diff engine
                                               • REST API on :8090
                                                      │
                                                      ▼
-                                         ContractSentinel UI (React)
-                                         • Overview dashboard + charts
-                                         • Drift feed with severity filter
-                                         • Service detail + snapshot history
-                                         • One-click "Review" to acknowledge
+                                               ContractSentinel UI (React)
+                                              • Overview dashboard + charts
+                                              • Drift feed with severity filter
+                                              • Service detail + snapshot history
+                                              • One-click "Review" to acknowledge
 ```
 
 **Change types detected:**
