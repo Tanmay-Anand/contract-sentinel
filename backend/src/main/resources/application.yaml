@@ -1,0 +1,45 @@
+spring:
+  application:
+    name: contract-sentinel
+  datasource:
+    url: jdbc:postgresql://localhost:5432/contract_sentinel
+    username: postgres
+    password: password
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        jdbc:
+          time-zone: UTC
+  jackson:
+    time-zone: UTC
+
+server:
+  port: 8090
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    doc-expansion: none
+
+sentinel:
+  poll:
+    interval-ms: 300000        # 5 minutes between polls
+    initial-delay-ms: 15000    # 15s grace period on startup
+  services:
+    # List the services you want to monitor here.
+    # Each entry is seeded into the DB on startup (duplicates are skipped).
+    - name: "my-service"
+      baseUrl: "http://localhost:8080"
+      specPath: "/v3/api-docs"
+    # - name: "another-service"
+    #   baseUrl: "http://localhost:8081"
+    #   specPath: "/v3/api-docs"
+
+logging:
+  level:
+    io.contractsentinel: info

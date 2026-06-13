@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: contract-sentinel-db
+    environment:
+      POSTGRES_DB: contract_sentinel
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - cs_pgdata:/var/lib/postgresql/data
+
+volumes:
+  cs_pgdata:

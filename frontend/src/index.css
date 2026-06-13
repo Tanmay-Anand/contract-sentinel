@@ -1,0 +1,58 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  --color-background: #f1f5f9;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f8fafc;
+  --color-border: #e2e8f0;
+  --color-border-strong: #cbd5e1;
+  --color-text-primary: #0f172a;
+  --color-text-secondary: #64748b;
+
+  --color-breaking: #dc2626;
+  --color-breaking-bg: #fef2f2;
+  --color-breaking-border: #fecaca;
+
+  --color-safe: #16a34a;
+  --color-safe-bg: #f0fdf4;
+  --color-safe-border: #bbf7d0;
+
+  --color-healthy: #16a34a;
+  --color-healthy-bg: #f0fdf4;
+  --color-healthy-border: #bbf7d0;
+
+  --color-drifted: #d97706;
+  --color-drifted-bg: #fffbeb;
+  --color-drifted-border: #fde68a;
+
+  --color-unreachable: #ef4444;
+  --color-unreachable-bg: #fef2f2;
+  --color-unreachable-border: #fecaca;
+
+  --color-parse-failed: #8b5cf6;
+  --color-parse-failed-bg: #f5f3ff;
+  --color-parse-failed-border: #ddd6fe;
+
+  --color-unknown: #64748b;
+  --color-unknown-bg: #f8fafc;
+  --color-unknown-border: #e2e8f0;
+
+  --color-primary: #16a34a;
+  --color-primary-hover: #15803d;
+  --color-primary-bg: #f0fdf4;
+  --color-primary-muted: #dcfce7;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-background);
+  color: var(--color-text-primary);
+  margin: 0;
+}
