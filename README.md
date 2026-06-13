@@ -1,4 +1,4 @@
-# ContractSentinel
+# Contract Sentinel
 
 The problem you have right now: Suppose you have three services running. A field gets renamed in service 1, service 2 breaks, nobody finds out until a feature demo. You have no tester. You have Swagger docs but no enforcement.
 
