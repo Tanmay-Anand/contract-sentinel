@@ -1,6 +1,8 @@
 # ContractSentinel
 
-A **Living API Contract Validator** that monitors OpenAPI specs from your microservices, diffs consecutive snapshots, and classifies every change as breaking or safe — displayed on a real-time React dashboard.
+The problem you have right now: Suppose you have three services running. A field gets renamed in service 1, service 2 breaks, nobody finds out until a feature demo. You have no tester. You have Swagger docs but no enforcement.
+
+A **Living API Contract Validator** that monitors OpenAPI specs from your microservices, diffs consecutive snapshots, and classifies every change as breaking or safe, displayed on a real-time React dashboard.
 
 ---
 
@@ -19,7 +21,7 @@ ContractSentinel polls each of your registered services' `/v3/api-docs` (or any 
 
 ```
 ┌──────────────────────────────────────────┐
-│  Your Microservices                       │
+│  Your Microservices                      │
 │  service-a:8080/v3/api-docs              │
 │  service-b:8081/v3/api-docs  ──────────► │  ContractSentinel Backend (Spring Boot)
 │  service-c:8082/v3/api-docs              │  • Polls & snapshots every 5 min
@@ -194,7 +196,7 @@ Full interactive docs: `http://localhost:8090/swagger-ui.html`
 Poll /v3/api-docs
       │
       ▼
-SHA-256 hash ──── same as last FETCHED snapshot? ──► skip
+SHA-256 hash ──► same as last FETCHED snapshot? ──► skip
       │
       │ different
       ▼
@@ -224,9 +226,3 @@ If you want to embed ContractSentinel monitoring into your own project rather th
 1. **Register services** via the seeder config or directly via `ServiceRegistryRepository`
 2. **Point** `baseUrl` at each service's host — ContractSentinel only needs read access to `/v3/api-docs`
 3. Services do **not** need to know about ContractSentinel at all
-
----
-
-## License
-
-MIT
