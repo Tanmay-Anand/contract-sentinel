@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="frontend/src/assets/logo-white.png" alt="ContractSentinel" height="110">
+  <img src="frontend/src/assets/logo-white.png" alt="ContractSentinel" height="90">
 
   <h1>ContractSentinel</h1>
 
