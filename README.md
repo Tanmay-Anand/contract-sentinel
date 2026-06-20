@@ -50,55 +50,23 @@ The problem you have right now: Suppose you have three services running. A field
 
 ```
 ┌──────────────────────────────┐
-│  Your Microservices          |
-│  service-a:8080/v3/api-docs  |
-│  service-b:8081/v3/api-docs  | ─────────► ContractSentinel Backend (Spring  Boot 4 / Java 21)
+│  Your Microservices          │
+│  service-a:8080/v3/api-docs  │            
+│  service-b:8081/v3/api-docs  │ ──────────►  ContractSentinel Backend (Spring Boot) 
 │  service-c:8082/v3/api-docs  │              • Polls & snapshots every 5 min
 └──────────────────────────────┘              • SHA-256 dedup
-                                              • OpenAPI diff engine (swagger-parser)
-                                              • Oldest-baseline drift detection
+                                              • OpenAPI diff engine
                                               • REST API on :8090
                                                      │
                                                      ▼
-                                         ContractSentinel UI (React 19)
-                                         • TanStack Router + TanStack Query
-                                         • React Flow + ELK.js dependency graph
-                                         • Tailwind CSS v4 + Recharts
+                                               ContractSentinel UI (React)
+                                              • Overview dashboard + charts
+                                              • Drift feed with severity filter
+                                              • Service detail + snapshot history
+                                              • One-click "Review" to acknowledge
 ```
 
-### Drift Detection Algorithm
-
-ContractSentinel uses **oldest-baseline detection** —> every diff is computed against the *first successful snapshot ever taken*, not the previous one. This means:
-
-- Reverting a field to its original name removes the drift event
-- A field that was added, removed, and re-added only shows as stable
-- Services that were never reachable cannot produce false drift events
-
-```
-Poll /v3/api-docs
-      │
-      ▼
-SHA-256 hash ──► same as last FETCHED snapshot? ──► skip (no change)
-      │
-      │ different
-      ▼
-Save snapshot (FETCHED status)
-      │
-      ▼
-Find oldest FETCHED snapshot for this service (baseline)
-      │
-      ▼
-Diff baseline ↔ current with swagger-parser
-      │
-      ▼
-Save DriftEvent records (BREAKING / SAFE), deduped by (service, changeType, method, path)
-```
-
-Unreachable services are stored as `UNREACHABLE` snapshots and are never used as a baseline — preventing false positives from transient downtime.
-
----
-
-## Change Types
+**Change types detected:**
 
 | Change Type | Severity |
 |---|---|
