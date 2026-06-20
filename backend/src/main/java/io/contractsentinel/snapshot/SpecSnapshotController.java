@@ -1,7 +1,5 @@
 package io.contractsentinel.snapshot;
 
-import io.contractsentinel.registry.ServiceRegistry;
-import io.contractsentinel.registry.ServiceRegistryRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -19,34 +17,33 @@ import java.util.UUID;
 @Tag(name = "Snapshots & Polling", description = "Spec snapshots and manual poll triggers")
 public class SpecSnapshotController {
 
-    private final SpecSnapshotRepository snapshotRepository;
-    private final ServiceRegistryRepository serviceRepository;
-    private final SpecFetcherScheduler fetcherScheduler;
+    private final SpecSnapshotService specSnapshotService;
 
     @GetMapping("/api/services/{serviceId}/snapshots")
     @Operation(summary = "List spec snapshots for a service, newest first")
     public Page<SpecSnapshotDto> listSnapshots(
             @PathVariable UUID serviceId,
             @PageableDefault(size = 20, sort = "fetchedAt", direction = Sort.Direction.DESC) Pageable pageable) {
-        ServiceRegistry service = serviceRepository.findById(serviceId)
-                .orElseThrow(() -> new IllegalArgumentException("Service not found: " + serviceId));
-        return snapshotRepository.findByServiceOrderByFetchedAtDesc(service, pageable)
-                .map(SpecSnapshotDto::from);
+        return specSnapshotService.listByService(serviceId, pageable);
     }
 
     @PostMapping("/api/poll/now")
     @Operation(summary = "Trigger an immediate poll for all services")
     public ResponseEntity<String> pollAll() {
-        fetcherScheduler.pollAll();
-        return ResponseEntity.ok("Poll triggered for all active services");
+        return ResponseEntity.ok(specSnapshotService.pollAll());
     }
 
     @PostMapping("/api/poll/{serviceId}")
     @Operation(summary = "Trigger an immediate poll for a single service")
     public ResponseEntity<String> pollOne(@PathVariable UUID serviceId) {
-        ServiceRegistry service = serviceRepository.findById(serviceId)
-                .orElseThrow(() -> new IllegalArgumentException("Service not found: " + serviceId));
-        fetcherScheduler.pollService(service);
-        return ResponseEntity.ok("Poll triggered for " + service.getName());
+        return ResponseEntity.ok(specSnapshotService.pollOne(serviceId));
+    }
+
+    @PostMapping("/api/services/{serviceId}/redetect")
+    @Operation(summary = "Re-run drift detection between the oldest and newest snapshot for a service",
+               description = "Useful when the sentinel missed the transition (e.g. first poll had no previous baseline). " +
+                             "Compares the very first captured spec against the current one and surfaces all accumulated changes.")
+    public ResponseEntity<String> redetect(@PathVariable UUID serviceId) {
+        return ResponseEntity.ok(specSnapshotService.redetect(serviceId));
     }
 }

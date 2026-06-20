@@ -37,6 +37,9 @@ public class SpecSnapshot {
     @Column(nullable = false, length = 20)
     private FetchStatus fetchStatus;
 
+    @Column(nullable = true)
+    private Long fetchDurationMs;
+
     public enum FetchStatus {
         FETCHED, UNREACHABLE, PARSE_FAILED
     }

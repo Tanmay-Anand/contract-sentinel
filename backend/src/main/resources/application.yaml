@@ -39,6 +39,19 @@ sentinel:
     # - name: "another-service"
     #   baseUrl: "http://localhost:8081"
     #   specPath: "/v3/api-docs"
+  manual-dependencies:
+    # List manual service dependencies here (not auto-detectable via actuator/env).
+    # Examples: shared-database, internal-rest calls, webhooks.
+    # - source: "service-a"
+    #   target: "service-b"
+    #   propertyName: "shared-database"
+    #   endpointCallsJson: null
+  docker:
+    enabled: false
+  gateway:
+    url: ""
+  db:
+    schema: public
 
 logging:
   level:
