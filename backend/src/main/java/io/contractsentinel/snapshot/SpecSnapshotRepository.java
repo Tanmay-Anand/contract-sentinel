@@ -12,9 +12,9 @@ public interface SpecSnapshotRepository extends JpaRepository<SpecSnapshot, UUID
 
     Optional<SpecSnapshot> findTopByServiceOrderByFetchedAtDesc(ServiceRegistry service);
 
-    // Only use successfully fetched snapshots as diff baseline — UNREACHABLE entries have null specJson
-    Optional<SpecSnapshot> findTopByServiceAndFetchStatusOrderByFetchedAtDesc(
-            ServiceRegistry service, SpecSnapshot.FetchStatus fetchStatus);
+    Optional<SpecSnapshot> findTopByServiceAndFetchStatusOrderByFetchedAtDesc(ServiceRegistry service, SpecSnapshot.FetchStatus fetchStatus);
+
+    Optional<SpecSnapshot> findTopByServiceAndFetchStatusOrderByFetchedAtAsc(ServiceRegistry service, SpecSnapshot.FetchStatus fetchStatus);
 
     Page<SpecSnapshot> findByServiceOrderByFetchedAtDesc(ServiceRegistry service, Pageable pageable);
 }

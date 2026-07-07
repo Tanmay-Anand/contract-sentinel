@@ -9,7 +9,8 @@ public record SpecSnapshotDto(
         String serviceName,
         String specHash,
         Instant fetchedAt,
-        String fetchStatus
+        String fetchStatus,
+        Long fetchDurationMs
 ) {
     public static SpecSnapshotDto from(SpecSnapshot s) {
         return new SpecSnapshotDto(
@@ -18,7 +19,8 @@ public record SpecSnapshotDto(
                 s.getService().getName(),
                 s.getSpecHash(),
                 s.getFetchedAt(),
-                s.getFetchStatus().name()
+                s.getFetchStatus().name(),
+                s.getFetchDurationMs()
         );
     }
 }

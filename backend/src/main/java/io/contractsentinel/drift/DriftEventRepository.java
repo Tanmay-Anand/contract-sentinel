@@ -23,6 +23,9 @@ public interface DriftEventRepository extends JpaRepository<DriftEvent, UUID> {
 
     long countByServiceAndSeverityAndAcknowledgedFalse(ServiceRegistry service, DriftEvent.Severity severity);
 
+    boolean existsByServiceAndChangeTypeAndHttpMethodAndApiPath(
+            ServiceRegistry service, DriftEvent.ChangeType changeType, String httpMethod, String apiPath);
+
     @Query("SELECT d FROM DriftEvent d WHERE d.toSnapshot.id = :snapshotId")
     List<DriftEvent> findByToSnapshotId(@Param("snapshotId") UUID snapshotId);
 }

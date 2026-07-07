@@ -1,10 +1,20 @@
 package io.contractsentinel.snapshot;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.contractsentinel.alert.AlertService;
+import io.contractsentinel.deployment.DeploymentService;
 import io.contractsentinel.drift.DriftDetectionService;
+import io.contractsentinel.graph.DependencyGraphService;
+import io.contractsentinel.latency.LatencyService;
+import io.contractsentinel.performance.EndpointPerformanceService;
 import io.contractsentinel.registry.ServiceRegistry;
 import io.contractsentinel.registry.ServiceRegistryRepository;
+import io.contractsentinel.stats.OutboundCallCounter;
+import io.contractsentinel.trace.TraceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -16,6 +26,7 @@ import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.Map;
 import java.util.Optional;
 
 @Service
@@ -26,6 +37,22 @@ public class SpecFetcherScheduler {
     private final ServiceRegistryRepository serviceRepository;
     private final SpecSnapshotRepository snapshotRepository;
     private final DriftDetectionService driftDetectionService;
+    private final LatencyService latencyService;
+    private final DeploymentService deploymentService;
+    private final AlertService alertService;
+    private final DependencyGraphService dependencyGraphService;
+    private final io.contractsentinel.graph.OutboundCallScannerService outboundCallScannerService;
+    private final EndpointPerformanceService endpointPerformanceService;
+    private final TraceService traceService;
+    private final OutboundCallCounter callCounter;
+
+    @Value("${sentinel.performance.retention-days:30}")
+    private int performanceRetentionDays;
+
+    @Value("${sentinel.traces.retention-hours:24}")
+    private int traceRetentionHours;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     private final RestClient restClient = RestClient.builder()
             .requestFactory(timeoutFactory(Duration.ofSeconds(10), Duration.ofSeconds(30)))
@@ -45,6 +72,16 @@ public class SpecFetcherScheduler {
     public void pollAll() {
         log.info("Starting scheduled spec poll for all active services");
         serviceRepository.findAllByActiveTrue().forEach(this::pollService);
+        try {
+            endpointPerformanceService.purgeOlderThan(performanceRetentionDays);
+        } catch (Exception e) {
+            log.warn("Performance snapshot retention purge failed: {}", e.getMessage());
+        }
+        try {
+            traceService.purgeOlderThan(traceRetentionHours);
+        } catch (Exception e) {
+            log.warn("Trace span retention purge failed: {}", e.getMessage());
+        }
     }
 
     @Transactional
@@ -52,25 +89,43 @@ public class SpecFetcherScheduler {
         String specUrl = service.getBaseUrl() + service.getSpecPath();
         log.info("Polling spec from {}", specUrl);
 
-        // Use most-recent successfully FETCHED snapshot as diff baseline.
-        // UNREACHABLE snapshots have null specJson and must never be used for diffing.
-        Optional<SpecSnapshot> previous = snapshotRepository
+        // Most-recent snapshot: used only for hash comparison (skip processing when spec unchanged).
+        Optional<SpecSnapshot> latest = snapshotRepository
                 .findTopByServiceAndFetchStatusOrderByFetchedAtDesc(service, SpecSnapshot.FetchStatus.FETCHED);
 
+        // Oldest snapshot: the immutable baseline â€” drift is always measured against this.
+        // Using the oldest (not the latest) means accumulated changes across restarts are never lost.
+        Optional<SpecSnapshot> baseline = snapshotRepository
+                .findTopByServiceAndFetchStatusOrderByFetchedAtAsc(service, SpecSnapshot.FetchStatus.FETCHED);
+
         try {
+            long startMs = System.currentTimeMillis();
             String specJson = restClient.get()
                     .uri(specUrl)
                     .retrieve()
                     .body(String.class);
+            long durationMs = System.currentTimeMillis() - startMs;
 
             if (specJson == null || specJson.isBlank()) {
                 saveUnreachable(service);
+                alertService.evaluateUnreachable(service.getId(), service.getName());
                 return;
+            }
+
+            callCounter.incSpecPolls();
+            latencyService.recordSpecFetch(service, durationMs);
+            pollActuatorInfo(service);
+            dependencyGraphService.scanDependencies(service);
+            outboundCallScannerService.scanAndEnrich(service);
+            try {
+                endpointPerformanceService.collectForService(service);
+            } catch (Exception e) {
+                log.warn("Performance collection failed for {}: {}", service.getName(), e.getMessage());
             }
 
             String hash = sha256(specJson);
 
-            if (previous.isPresent() && hash.equals(previous.get().getSpecHash())) {
+            if (latest.isPresent() && hash.equals(latest.get().getSpecHash())) {
                 log.debug("No spec change detected for {}", service.getName());
                 return;
             }
@@ -81,13 +136,34 @@ public class SpecFetcherScheduler {
                     .specHash(hash)
                     .fetchedAt(Instant.now())
                     .fetchStatus(SpecSnapshot.FetchStatus.FETCHED)
+                    .fetchDurationMs(durationMs)
                     .build());
 
-            previous.ifPresent(prev -> driftDetectionService.detectAndPersist(service, prev, snapshot));
+            // Compare baseline (oldest ever) vs new snapshot â€” not just the consecutive previous.
+            // Deduplication in DriftDetectionService prevents duplicate events across polls.
+            baseline.ifPresent(base -> driftDetectionService.detectAndPersist(service, base, snapshot));
 
         } catch (Exception e) {
             log.warn("Failed to fetch spec from {}: {}", specUrl, e.getMessage());
             saveUnreachable(service);
+            alertService.evaluateUnreachable(service.getId(), service.getName());
+        }
+    }
+
+    private void pollActuatorInfo(ServiceRegistry service) {
+        try {
+            String contextPath = contextPathFrom(service.getSpecPath());
+            String infoJson = restClient.get()
+                    .uri(service.getBaseUrl() + contextPath + "/actuator/info")
+                    .retrieve()
+                    .body(String.class);
+            if (infoJson != null && !infoJson.isBlank()) {
+                callCounter.incActuatorInfo();
+                Map<String, Object> infoMap = objectMapper.readValue(infoJson, new TypeReference<>() {});
+                deploymentService.detectAndRecord(service, infoMap);
+            }
+        } catch (Exception e) {
+            log.debug("Could not fetch actuator/info for {}: {}", service.getName(), e.getMessage());
         }
     }
 
@@ -99,6 +175,13 @@ public class SpecFetcherScheduler {
                 .fetchedAt(Instant.now())
                 .fetchStatus(SpecSnapshot.FetchStatus.UNREACHABLE)
                 .build());
+    }
+
+    private String contextPathFrom(String specPath) {
+        if (specPath == null) return "";
+        int idx = specPath.lastIndexOf("/v3/api-docs");
+        if (idx <= 0) return "";
+        return specPath.substring(0, idx);
     }
 
     private String sha256(String input) {

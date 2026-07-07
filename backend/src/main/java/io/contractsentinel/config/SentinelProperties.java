@@ -12,6 +12,7 @@ public class SentinelProperties {
 
     private Poll poll = new Poll();
     private List<ServiceConfig> services = new ArrayList<>();
+    private List<ManualDependencyConfig> manualDependencies = new ArrayList<>();
 
     @Data
     public static class Poll {
@@ -24,5 +25,13 @@ public class SentinelProperties {
         private String name;
         private String baseUrl;
         private String specPath = "/v3/api-docs";
+    }
+
+    @Data
+    public static class ManualDependencyConfig {
+        private String source;
+        private String target;
+        private String propertyName;
+        private String endpointCallsJson;
     }
 }
