@@ -159,8 +159,13 @@ contract-sentinel/
 │       │   ├── graph/              ServiceDependency — dependency graph, DB schema introspection
 │       │   ├── query/              DbQuery — read-only SQL console (SELECT-only, auto-LIMIT 500)
 │       │   ├── catalogue/          ApiCatalogue — browse all endpoints
-│       │   ├── sampler/            ResponseSampler — live response samples
+│       │   ├── sampler/            ResponseSampler — live samples + size/latency correlation
 │       │   ├── latency/            LatencyMetric — per-endpoint latency history
+│       │   ├── performance/        Endpoint performance registry + volatility scoring
+│       │   ├── trace/              Zipkin span receiver + request-waterfall assembly
+│       │   ├── profiling/          JFR hotspot profiler (async orchestration + .jfr parsing)
+│       │   ├── llm/                Pluggable LLM client (Ollama / Claude)
+│       │   ├── agent/              Tool-calling agents (diagnosis, schema-risk) + tools
 │       │   ├── usage/              EndpointUsage — dead endpoint detection
 │       │   ├── deployment/         DeploymentEvent — deployment tracking
 │       │   ├── alert/              AlertConfig — webhook/email alert channels
