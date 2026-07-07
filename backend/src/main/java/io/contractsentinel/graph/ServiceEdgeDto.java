@@ -20,7 +20,9 @@ public record ServiceEdgeDto(
         Instant verifiedAt,
         Instant scanFailedAt,
         boolean stale,
-        List<EndpointCall> endpointCalls
+        List<EndpointCall> endpointCalls,
+        Double avgLatencyMs,
+        String latencyBand
 ) {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -45,7 +47,15 @@ public record ServiceEdgeDto(
                 d.getVerifiedAt(),
                 d.getScanFailedAt(),
                 d.isStale(),
-                calls
+                calls,
+                null,
+                null
         );
+    }
+
+    /** Returns a copy of this edge annotated with observed inter-service round-trip latency. */
+    public ServiceEdgeDto withLatency(Double ms, String band) {
+        return new ServiceEdgeDto(id, sourceId, sourceName, targetId, targetName, detectionMethod,
+                propertyName, confidence, verifiedAt, scanFailedAt, stale, endpointCalls, ms, band);
     }
 }

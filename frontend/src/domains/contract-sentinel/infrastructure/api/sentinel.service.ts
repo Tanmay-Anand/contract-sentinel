@@ -11,6 +11,7 @@ import type {
   DeadEndpointDto,
   DeploymentEventDto,
   DriftEventDto,
+  EndpointSizeDto,
   GatewayHealthDto,
   LatencyMetricDto,
   ManualDependencyRequest,
@@ -26,11 +27,19 @@ import type {
   TableSchemaDto,
   SpecDiffDto,
   UsageEntryDto,
+  DbQueryResponse,
+  CorrelationResponse,
+  ProfilingRunDto,
+  EndpointPerformanceRow,
+  EndpointPerformanceDetail,
+  TraceSummaryDto,
+  TraceTreeDto,
+  AgentRunDto,
 } from "./types"
 
 const BASE_URL = (import.meta.env["VITE_SENTINEL_API_URL"] as string | undefined) ?? "http://localhost:8090"
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit, opts?: { silent?: boolean }): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     headers: { "Content-Type": "application/json" },
     ...init,
@@ -43,7 +52,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       const json = JSON.parse(text) as { message?: string }
       if (json.message) message = json.message
     } catch { /* use status message */ }
-    toast.error(message)
+    // `silent` calls (e.g. a shared-DB schema fetch for a service that isn't running)
+    // fail quietly — the caller shows its own empty state instead of a red toast.
+    if (!opts?.silent) toast.error(message)
     throw new Error(message)
   }
 
@@ -158,6 +169,52 @@ export const sentinelService = {
       request<PageResponse<SamplingResultDto>>(
         `/api/sampler/endpoints/${id}/results?page=${page}&size=10`,
       ),
+    sizes: () => request<EndpointSizeDto[]>("/api/sampler/sizes"),
+    heaviest: (serviceId: string) =>
+      request<EndpointSizeDto[]>(`/api/sampler/heaviest?serviceId=${serviceId}`),
+    correlation: (endpointId: string) =>
+      request<CorrelationResponse>(`/api/sampler/correlation/${endpointId}`),
+  },
+
+  profiling: {
+    start: (serviceId: string, durationSeconds: number) =>
+      request<ProfilingRunDto>(`/api/profiling/${serviceId}/start?durationSeconds=${durationSeconds}`, { method: "POST" }),
+    getRun: (runId: string) => request<ProfilingRunDto>(`/api/profiling/runs/${runId}`),
+    history: (serviceId: string) => request<ProfilingRunDto[]>(`/api/profiling/${serviceId}/runs`),
+  },
+
+  performance: {
+    registry: (params: { serviceId?: string; method?: string; q?: string } = {}) => {
+      const q = new URLSearchParams()
+      if (params.serviceId) q.set("serviceId", params.serviceId)
+      if (params.method) q.set("method", params.method)
+      if (params.q) q.set("q", params.q)
+      return request<EndpointPerformanceRow[]>(`/api/performance/registry?${q}`)
+    },
+    history: (serviceId: string, method: string, path: string, days = 7) => {
+      const q = new URLSearchParams({ serviceId, method, path, days: String(days) })
+      return request<EndpointPerformanceDetail>(`/api/performance/history?${q}`)
+    },
+  },
+
+  traces: {
+    list: (params: { serviceName?: string; minDurationMs?: number; sinceMinutes?: number; limit?: number } = {}) => {
+      const q = new URLSearchParams()
+      if (params.serviceName) q.set("serviceName", params.serviceName)
+      if (params.minDurationMs != null) q.set("minDurationMs", String(params.minDurationMs))
+      q.set("sinceMinutes", String(params.sinceMinutes ?? 60))
+      q.set("limit", String(params.limit ?? 50))
+      return request<TraceSummaryDto[]>(`/api/traces?${q}`)
+    },
+    get: (traceId: string) => request<TraceTreeDto>(`/api/traces/${traceId}`),
+  },
+
+  agents: {
+    diagnose: (body: { serviceId: string; method: string; path: string; mode?: string }) =>
+      request<AgentRunDto>("/api/agents/diagnose", { method: "POST", body: JSON.stringify(body) }),
+    schemaRisk: (migrationSql: string) =>
+      request<AgentRunDto>("/api/agents/schema-risk", { method: "POST", body: JSON.stringify({ migrationSql }) }),
+    getRun: (runId: string) => request<AgentRunDto>(`/api/agents/runs/${runId}`),
   },
 
   infrastructure: {
@@ -180,11 +237,19 @@ export const sentinelService = {
     removeEdge: (id: string) => request<void>(`/api/dependencies/${id}`, { method: "DELETE" }),
     blastRadius: (serviceId: string) => request<BlastRadiusDto>(`/api/graph/blast-radius/${serviceId}`),
     driftBlastRadius: (driftEventId: string) => request<BlastRadiusDto>(`/api/drift/${driftEventId}/blast-radius`),
-    dbSchema: (edgeId: string) => request<TableSchemaDto[]>(`/api/dependencies/${edgeId}/db-schema`),
-    dbGraph: () => request<DbSchemaGroupDto[]>("/api/graph/db-graph"),
+    dbSchema: (edgeId: string) => request<TableSchemaDto[]>(`/api/dependencies/${edgeId}/db-schema`, undefined, { silent: true }),
+    dbGraph: () => request<DbSchemaGroupDto[]>("/api/graph/db-graph", undefined, { silent: true }),
   },
 
   stats: {
     callCount: () => request<CallCountDto>("/api/stats/call-count"),
+  },
+
+  db: {
+    query: (serviceId: string, sql: string) =>
+      request<DbQueryResponse>("/api/db/query", {
+        method: "POST",
+        body: JSON.stringify({ serviceId, sql }),
+      }),
   },
 }

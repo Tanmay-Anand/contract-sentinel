@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.web.bind.annotation.RequestParam;
+
 @RestController
 @RequestMapping("/api/sampler")
 @RequiredArgsConstructor
@@ -51,5 +53,23 @@ public class SamplerController {
             @PathVariable UUID id,
             @PageableDefault(size = 10) Pageable pageable) {
         return responseSamplerService.listResults(id, pageable);
+    }
+
+    @GetMapping("/sizes")
+    @Operation(summary = "Latest response size for every sampled endpoint (for catalogue size pills)")
+    public List<EndpointSizeDto> getEndpointSizes() {
+        return responseSamplerService.getEndpointSizes();
+    }
+
+    @GetMapping("/heaviest")
+    @Operation(summary = "Top 5 heaviest endpoints by last response size for a service")
+    public List<EndpointSizeDto> getHeaviestEndpoints(@RequestParam UUID serviceId) {
+        return responseSamplerService.getHeaviestEndpoints(serviceId);
+    }
+
+    @GetMapping("/correlation/{endpointId}")
+    @Operation(summary = "Payload-size vs response-time correlation for a sampled endpoint")
+    public CorrelationResponse correlation(@PathVariable UUID endpointId) {
+        return responseSamplerService.correlation(endpointId);
     }
 }

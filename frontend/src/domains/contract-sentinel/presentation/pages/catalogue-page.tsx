@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Search } from "lucide-react"
 import { useCatalogue } from "../hooks/use-catalogue"
 import { useServices } from "../hooks/use-services"
+import { useEndpointSizes } from "../hooks/use-sampler"
 import { EndpointCard } from "../components/endpoint-card"
 
 const METHODS = ["ALL", "GET", "POST", "PUT", "DELETE", "PATCH"]
@@ -19,6 +20,16 @@ export default function CataloguePage() {
   }, [rawQuery])
 
   const { data: services } = useServices()
+  const { data: sizes } = useEndpointSizes()
+
+  const sizeMap = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const s of sizes ?? []) {
+      map.set(`${s.serviceId}:${s.httpMethod}:${s.path}`, s.responseSizeBytes)
+    }
+    return map
+  }, [sizes])
+
   const params = {
     ...(query ? { q: query } : {}),
     ...(method !== "ALL" ? { method } : {}),
@@ -108,7 +119,11 @@ export default function CataloguePage() {
       {entries && entries.length > 0 && (
         <div className="space-y-2">
           {entries.map((entry, i) => (
-            <EndpointCard key={`${entry.serviceId}-${entry.httpMethod}-${entry.path}-${i}`} entry={entry} />
+            <EndpointCard
+              key={`${entry.serviceId}-${entry.httpMethod}-${entry.path}-${i}`}
+              entry={entry}
+              sizeBytes={sizeMap.get(`${entry.serviceId}:${entry.httpMethod}:${entry.path}`)}
+            />
           ))}
         </div>
       )}

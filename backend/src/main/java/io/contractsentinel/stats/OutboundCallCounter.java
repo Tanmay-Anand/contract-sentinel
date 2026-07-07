@@ -1,4 +1,4 @@
-﻿package io.contractsentinel.stats;
+package io.contractsentinel.stats;
 
 import org.springframework.stereotype.Component;
 

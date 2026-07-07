@@ -1,12 +1,12 @@
-<div align="center">
-  <img src="frontend/src/assets/logo-white.png" alt="ContractSentinel" height="90">
+<p align="center">
+  <img src="frontend/src/assets/logo.png" alt="ContractSentinel" height="64" />
+</p>
 
-  <h1>ContractSentinel</h1>
+<h1 align="center">ContractSentinel</h1>
 
-  <p>
-    Living API contract monitor for microservices, detect breaking changes before they reach production.
-  </p>
-</div>
+<p align="center">
+  Living API contract monitor for microservices — detect breaking changes before they reach production.
+</p>
 
 ---
 
@@ -19,12 +19,17 @@ The problem you have right now: Suppose you have three services running. A field
 ## What It Does
 
 - **Polls** each registered service's `/v3/api-docs` (or any OpenAPI endpoint) on a configurable schedule
-- **Detects** what changed —> path added/removed, response field added/removed, field type changed, required request field added
+- **Detects** what changed — path added/removed, response field added/removed, field type changed, required request field added
 - **Classifies** every change as `BREAKING` or `SAFE` using oldest-baseline drift detection
 - **Stores** a permanent snapshot and drift history in PostgreSQL (SHA-256 dedup — no duplicate snapshots)
 - **Maps** your service dependency graph: shared databases, REST calls, webhooks, external APIs
 - **Explores** your database schema: foreign key relationships, cross-service table dependencies
+- **Queries** any monitored service's database directly from the UI — read-only SQL console with FK-aware graph visualization
 - **Tracks** latency, endpoint usage, response samples, and dead endpoints
+- **Profiles** CPU hotspots on demand via Java Flight Recorder — no agent, no JProfiler license
+- **Ranks** every endpoint in a performance registry with real p50/p95/p99, error rate, size, and volatility
+- **Traces** cross-service request waterfalls (Micrometer/Zipkin) and inter-service network latency on the graph
+- **Diagnoses** slow endpoints and assesses migration risk with autonomous LLM agents (Ollama or Claude)
 - **Alerts** via configured channels when breaking changes are detected
 
 ---
@@ -37,11 +42,17 @@ The problem you have right now: Suppose you have three services running. A field
 | **Impact panel** | Per drift event: which services call the affected endpoint (direct hit vs indirect dependency) |
 | **Mark as reviewed** | Toggle "Mark it" / "Marked" per drift event — bidirectional acknowledge/unacknowledge |
 | **Dependency graph** | ELK.js-powered layered graph: services as nodes, shared DBs / REST calls / webhooks as relay cards |
-| **DB schema explorer** | Click any table → see it + 1-hop FK neighbors; progressive expand; cross-service FKs highlighted |
+| **DB schema explorer** | Click any table → see it + 1-hop FK neighbors; progressive expand; cross-service FKs highlighted; column detail panel |
+| **Query Console** | Monaco-powered SQL editor — browse tables, run SELECT queries, view results as a table or a FK-aware force graph |
 | **API Catalogue** | Browse every endpoint across all services with request/response schemas |
 | **Infrastructure view** | Container health, gateway routes, uptime |
 | **Latency tracking** | Per-endpoint p50/p95/p99 latency history |
-| **Response sampler** | Live response samples per endpoint for regression detection |
+| **Response sampler** | Live response samples per endpoint for regression detection, with payload-size vs latency correlation |
+| **JFR Profiler** | One-click Java Flight Recorder session per service → ranked top hot methods by CPU sample share |
+| **Performance Registry** | One sortable row per endpoint: Δcount, p50/p95/p99, error rate, size, 7-day sparkline, relative p99 ranking, volatility score |
+| **Request Waterfall** | Distributed traces assembled into per-request waterfall diagrams, colour-coded by service |
+| **Inter-service latency** | Dependency-graph edges annotated with average round-trip time (green/amber/red bands) |
+| **AI Agents** | Autonomous performance-diagnosis and schema-change-risk agents (pluggable Ollama / Claude) |
 | **Alert channels** | Webhook / email alerts on breaking contract changes |
 
 ---
@@ -49,24 +60,56 @@ The problem you have right now: Suppose you have three services running. A field
 ## Architecture
 
 ```
-┌──────────────────────────────┐
-│  Your Microservices          │
-│  service-a:8080/v3/api-docs  │            
-│  service-b:8081/v3/api-docs  │ ──────────►  ContractSentinel Backend (Spring Boot) 
-│  service-c:8082/v3/api-docs  │              • Polls & snapshots every 5 min
-└──────────────────────────────┘              • SHA-256 dedup
-                                              • OpenAPI diff engine
+┌──────────────────────────────────────────┐
+│  Your Microservices                      │
+│  service-a:8080/v3/api-docs              │
+│  service-b:8081/v3/api-docs  ──────────► │  ContractSentinel Backend (Spring Boot 4 / Java 21)
+│  service-c:8082/v3/api-docs              │  • Polls & snapshots every 5 min
+└──────────────────────────────────────────┘  • SHA-256 dedup
+                                              • OpenAPI diff engine (swagger-parser)
+                                              • Oldest-baseline drift detection
                                               • REST API on :8090
                                                      │
                                                      ▼
-                                               ContractSentinel UI (React)
-                                              • Overview dashboard + charts
-                                              • Drift feed with severity filter
-                                              • Service detail + snapshot history
-                                              • One-click "Review" to acknowledge
+                                         ContractSentinel UI (React 19)
+                                         • TanStack Router + TanStack Query
+                                         • React Flow + ELK.js dependency graph
+                                         • Tailwind CSS v4 + Recharts
 ```
 
-**Change types detected:**
+### Drift Detection Algorithm
+
+ContractSentinel uses **oldest-baseline detection** — every diff is computed against the *first successful snapshot ever taken*, not the previous one. This means:
+
+- Reverting a field to its original name removes the drift event
+- A field that was added, removed, and re-added only shows as stable
+- Services that were never reachable cannot produce false drift events
+
+```
+Poll /v3/api-docs
+      │
+      ▼
+SHA-256 hash ──► same as last FETCHED snapshot? ──► skip (no change)
+      │
+      │ different
+      ▼
+Save snapshot (FETCHED status)
+      │
+      ▼
+Find oldest FETCHED snapshot for this service (baseline)
+      │
+      ▼
+Diff baseline ↔ current with swagger-parser
+      │
+      ▼
+Save DriftEvent records (BREAKING / SAFE), deduped by (service, changeType, method, path)
+```
+
+Unreachable services are stored as `UNREACHABLE` snapshots and are never used as a baseline — preventing false positives from transient downtime.
+
+---
+
+## Change Types
 
 | Change Type | Severity |
 |---|---|
@@ -92,6 +135,7 @@ The problem you have right now: Suppose you have three services running. A field
 | Data fetching | TanStack Query v5 |
 | Styling | Tailwind CSS v4 |
 | Graph layout | React Flow + ELK.js (Eclipse Layout Kernel) |
+| SQL editor | Monaco Editor (`@monaco-editor/react`) |
 | Charts | Recharts v3 |
 
 ---
@@ -112,10 +156,16 @@ contract-sentinel/
 │       │   ├── registry/           ServiceRegistry — register/list monitored services
 │       │   ├── snapshot/           SpecSnapshot — fetch & store OpenAPI specs
 │       │   ├── drift/              DriftEvent — detect & classify contract changes
-│       │   ├── graph/              ServiceDependency — dependency graph, DB schema
+│       │   ├── graph/              ServiceDependency — dependency graph, DB schema introspection
+│       │   ├── query/              DbQuery — read-only SQL console (SELECT-only, auto-LIMIT 500)
 │       │   ├── catalogue/          ApiCatalogue — browse all endpoints
-│       │   ├── sampler/            ResponseSampler — live response samples
+│       │   ├── sampler/            ResponseSampler — live samples + size/latency correlation
 │       │   ├── latency/            LatencyMetric — per-endpoint latency history
+│       │   ├── performance/        Endpoint performance registry + volatility scoring
+│       │   ├── trace/              Zipkin span receiver + request-waterfall assembly
+│       │   ├── profiling/          JFR hotspot profiler (async orchestration + .jfr parsing)
+│       │   ├── llm/                Pluggable LLM client (Ollama / Claude)
+│       │   ├── agent/              Tool-calling agents (diagnosis, schema-risk) + tools
 │       │   ├── usage/              EndpointUsage — dead endpoint detection
 │       │   ├── deployment/         DeploymentEvent — deployment tracking
 │       │   ├── alert/              AlertConfig — webhook/email alert channels
@@ -131,7 +181,7 @@ contract-sentinel/
         ├── domains/contract-sentinel/
         │   ├── infrastructure/api/ sentinel.service.ts, types.ts
         │   └── presentation/
-        │       ├── components/     drift-event-row, dependency-card-node, db-schema-explorer, …
+        │       ├── components/     drift-event-row, dependency-card-node, db-schema-explorer, query-console, …
         │       ├── hooks/          use-drift, use-graph, use-services, use-stats, …
         │       └── pages/          graph-page, drift-feed-page, overview-page, …
         └── routes/                 __root.tsx, TanStack Router file-based routes
@@ -243,11 +293,11 @@ sentinel:
       propertyName: "internal-rest"
       endpointCallsJson: '[{"method":"GET","path":"/api/users/{id}"}]'
 
-  # Docker integration (optional —> for infrastructure view)
+  # Docker integration (optional — for infrastructure view)
   docker:
     enabled: false                 # set true if Docker socket is accessible
 
-  # API gateway integration (optional —> for infrastructure view)
+  # API gateway integration (optional — for infrastructure view)
   gateway:
     url: ""                        # e.g. http://nginx:80
 
@@ -297,6 +347,15 @@ sentinel:
 | `DELETE` | `/api/graph/dependency/{id}` | Remove a dependency edge |
 | `GET` | `/api/graph/db-schema/{edgeId}` | DB schema tables for a shared-DB edge |
 
+### Database Query Console
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/db/query` | Execute a read-only SELECT against a registered service's database |
+
+Request body: `{ "serviceId": "<uuid>", "sql": "SELECT ..." }`
+Response: `{ "columns": [...], "rows": [[...]], "rowCount": N, "executionMs": N }`
+
 ### Catalogue, Latency, Usage
 
 | Method | Path | Description |
@@ -313,6 +372,22 @@ sentinel:
 | `GET` | `/api/alerts/channels` | List alert channels |
 | `POST` | `/api/alerts/channels` | Create an alert channel (webhook/email) |
 | `DELETE` | `/api/alerts/channels/{id}` | Remove an alert channel |
+
+### Performance, Profiling, Traces & Agents
+
+| Method | Path | Description |
+|---|---|---|
+| `GET`  | `/api/performance/registry` | Latest reading per endpoint (filters: `serviceId`, `method`, `q`) |
+| `GET`  | `/api/performance/history` | Full latency series for one endpoint (`serviceId`, `method`, `path`, `days`) |
+| `POST` | `/api/profiling/{serviceId}/start` | Start a JFR recording (`durationSeconds`, 10–30) |
+| `GET`  | `/api/profiling/runs/{runId}` | Poll a profiling run's status + hot methods |
+| `GET`  | `/api/sampler/correlation/{endpointId}` | Payload-size vs response-time correlation |
+| `POST` | `/api/traces/zipkin` | Zipkin v2 span ingest (services post here automatically) |
+| `GET`  | `/api/traces` | Recent traces (filters: `serviceName`, `minDurationMs`, `sinceMinutes`) |
+| `GET`  | `/api/traces/{traceId}` | Assembled trace waterfall |
+| `POST` | `/api/agents/diagnose` | Start a performance-diagnosis agent run |
+| `POST` | `/api/agents/schema-risk` | Start a schema-change risk assessment |
+| `GET`  | `/api/agents/runs/{runId}` | Poll an agent run's live steps + result |
 
 Full interactive docs: `http://localhost:8090/swagger-ui.html`
 
@@ -347,6 +422,51 @@ Click any relay node to open a sidebar with full details. Click any service node
 
 ---
 
+## Query Console
+
+The **Graph → Query Console** tab is a read-only SQL console backed by the same JDBC infrastructure that powers the DB schema explorer.
+
+### Layout
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Target DB: [service selector ▼]   baseUrl        [▶ Run]   │
+├──────────────┬──────────────────────────────────────────────┤
+│  Table       │  Monaco Editor (SQL, Ctrl+Enter to run)      │
+│  Browser     ├──────────────────────────────────────────────┤
+│  (click to   │  ┌ Data results ┐ ┌ Graph results ┐  29 rows │
+│   insert)    │  └──────────────────────────────────────────┘│
+│              │  Results panel (drag divider to resize)      │
+└──────────────┴──────────────────────────────────────────────┘
+```
+
+### Features
+
+- **Table browser** — left panel shows all tables for the selected service, grouped and color-coded. Click a table → inserts `SELECT * FROM table LIMIT 50`. Click a column → adds it to the SELECT list.
+- **Monaco editor** — full VS Code editor: SQL syntax highlighting, line numbers, `Ctrl+Enter` to run.
+- **Resizable split** — drag the divider between the editor and results panel to adjust height.
+- **Data results tab** — scrollable table grid with sticky headers, null rendering, row count, execution time, and "Copy as JSON".
+- **Graph results tab** — always available regardless of query type. Renders every unique value as a colored node with d3-style physics (repulsion + spring attraction). FK relationships from the loaded schema metadata automatically draw edges between related values. Single-column results show as a scattered cloud with a "No relationships detected" hint.
+  - Node color = service the column belongs to (post-sales: blue, pre-sales: green, platform: purple, reports: amber)
+  - Minimap, zoom, pan, draggable nodes
+  - Capped at 200 nodes
+
+### Safety
+
+All queries are validated before execution:
+
+| Check | Behavior |
+|---|---|
+| Forbidden keywords (`INSERT`, `UPDATE`, `DELETE`, `DROP`, etc.) | Rejected — 400 with message |
+| Multiple statements (`;` separator) | Rejected |
+| Missing `LIMIT` | Auto-appended as `LIMIT 500` |
+| `WITH ... SELECT` CTEs | Allowed |
+| Max rows returned | Hard-capped at 500 in the service layer |
+
+The console never writes to the database. It is a developer introspection tool, not an admin console.
+
+---
+
 ## Database Schema Explorer
 
 The **Graph → Database Schema** tab gives you a focused exploration view:
@@ -355,6 +475,124 @@ The **Graph → Database Schema** tab gives you a focused exploration view:
 2. **Right panel** — click any table to see it + its 1-hop FK neighbors via an ELK-powered mini graph
 3. **Expand** — click `+` on any neighbor node to pin it and expand its own neighbors
 4. **Cross-service FKs** — FK relationships that cross service boundaries are highlighted in amber
+
+Every active service's database is introspected (via its `/actuator/env` datasource config), not just
+those linked by a `shared-database` edge — so a service that owns its own database and is reached only over
+REST still shows up. Databases are de-duplicated by JDBC URL, so services that genuinely share one physical
+database collapse into a single group instead of appearing twice.
+
+---
+
+## Performance Intelligence & AI Agents
+
+ContractSentinel goes beyond contract validation into a full **performance intelligence stack**. These
+features answer different dimensions of "why is this slow" without any external tool like Grafana or Datadog.
+
+| Layer | What it tells you |
+|---|---|
+| **Payload vs Latency Correlation** | Spots N+1 candidates (exponential size→time growth) |
+| **Endpoint Performance Registry** | Confirms which endpoints are worst, ranked relative to the fleet |
+| **Endpoint Volatility Score** | Finds endpoints that are unpredictably bad (high coefficient of variation) |
+| **Request Waterfall** | Shows where the time actually goes across services |
+| **Inter-Service Network Latency** | Isolates whether it's the network or the receiving service |
+| **JFR Hotspot Profiler** | Names the exact method the CPU is burning time in |
+
+### Performance Registry & Volatility
+
+Every poll, ContractSentinel scrapes each service's `/actuator/prometheus` and writes an
+`endpoint_performance_snapshots` row per observed endpoint (real p50/p95/p99, count delta, error count).
+The **Performance** tab renders one sortable row per endpoint with a 7-day p95 sparkline, a relative
+ranking badge ("8.4× median p99"), and a volatility rating (Stable / Moderate / Volatile / Erratic,
+computed as stddev/mean of the p95 series).
+
+> Real percentiles require each service to publish them. Add to each monitored service's config:
+> ```yaml
+> management:
+>   metrics:
+>     distribution:
+>       percentiles:
+>         http.server.requests: 0.5, 0.95, 0.99
+>   endpoints:
+>     web:
+>       exposure:
+>         include: health, info, prometheus   # prometheus must be exposed
+> ```
+
+### JFR Hotspot Profiler
+
+Click **⚡ Profile** on any service card to run a 15–30s Java Flight Recorder session. ContractSentinel
+triggers it via a custom actuator endpoint, downloads the `.jfr`, parses `jdk.ExecutionSample` events,
+and surfaces the top hot methods by CPU sample share. Add this endpoint to each service you want to profile:
+
+```java
+@Component
+@Endpoint(id = "jfr")
+public class JfrProfilingEndpoint {
+    private final AtomicReference<Recording> active = new AtomicReference<>();
+    private volatile Path lastDump;
+
+    @WriteOperation                 // POST /actuator/jfr {"durationSeconds": 20}
+    public Map<String, Object> start(@Nullable Integer durationSeconds) {
+        // new Recording(); enable("jdk.ExecutionSample").withPeriod(10ms);
+        // setDuration(...); setDestination(temp); start(); ...
+    }
+    @ReadOperation                  // GET /actuator/jfr → {state, sizeBytes}
+    public Map<String, Object> status() { /* ... */ }
+    @ReadOperation                  // GET /actuator/jfr/download → {data: base64}
+    public Map<String, Object> download(@Selector String action) { /* ... */ }
+}
+```
+
+A complete, copy-paste implementation lives in `docs/JfrProfilingEndpoint.java`. Permit the POST in your
+security config: `.requestMatchers(HttpMethod.POST, "/actuator/jfr").permitAll()`.
+
+### Request Waterfall & Inter-Service Latency
+
+Add distributed tracing to each service and point it at ContractSentinel as the collector:
+
+```xml
+<dependency><groupId>io.micrometer</groupId><artifactId>micrometer-tracing-bridge-brave</artifactId></dependency>
+<dependency><groupId>io.zipkin.reporter2</groupId><artifactId>zipkin-reporter-brave</artifactId></dependency>
+```
+```yaml
+management:
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: http://localhost:8090/api/traces/zipkin
+```
+
+The **Traces** tab lists collected traces and renders each as a waterfall. The dependency **Graph**
+edges are annotated with average inter-service round-trip latency (green &lt;10ms / amber 10–50ms /
+red &gt;50ms), derived from each caller's `http.client.requests` metric.
+
+### AI Agents
+
+Two autonomous agents use the tools above to investigate on your behalf. They run a real tool-calling
+loop — deciding which tool to call next based on what the previous one returned — and stream their steps
+live while they work.
+
+- **Performance Diagnosis** — from a slow endpoint: checks latency regression → correlates deployments →
+  checks usage → runs `EXPLAIN ANALYZE` on the inferred query → checks the connection pool → ranks hypotheses.
+- **Schema Change Risk** — from a migration statement: counts rows, maps foreign keys, finds affected
+  endpoints and frontend references, and produces a risk report with a safe rollout recommendation.
+
+The LLM backend is pluggable — **Ollama** (local, default) or **Claude** (opt-in):
+
+```yaml
+sentinel:
+  llm:
+    provider: ollama                      # or: claude
+    ollama:
+      base-url: http://localhost:11434
+      model: qwen2.5:14b                  # a tool-capable model
+    claude:
+      api-key: ${SENTINEL_LLM_CLAUDE_API_KEY:}   # env only — never commit
+  frontend:
+    source-dir: /abs/path/to/frontend/src        # enables the schema-risk agent's frontend grep
+```
 
 ---
 
@@ -369,8 +607,4 @@ The **Graph → Database Schema** tab gives you a focused exploration view:
 
 ## License
 
-There are to (at least) ways we can go:
-
-* I don't care about licensing: I want people to use this, and I don't care how.
-
-* I don't care about licensing: I don't care how people use this, I don't even care if you don't use it at all.
+MIT

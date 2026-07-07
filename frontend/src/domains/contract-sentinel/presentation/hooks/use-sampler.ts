@@ -7,6 +7,8 @@ const SAMPLER_ENDPOINTS_KEY = ["sampler-endpoints"] as const
 const SAMPLER_KEYS = {
   all: SAMPLER_ENDPOINTS_KEY,
   results: (endpointId: string, page: number) => ["sampler-results", endpointId, page] as const,
+  sizes: ["sampler-sizes"] as const,
+  heaviest: (serviceId: string) => ["sampler-heaviest", serviceId] as const,
 }
 
 export function useSampledEndpoints() {
@@ -44,6 +46,7 @@ export function useRunSample() {
     onSuccess: (_, id) => {
       void queryClient.invalidateQueries({ queryKey: ["sampler-results", id] })
       void queryClient.invalidateQueries({ queryKey: SAMPLER_KEYS.all })
+      void queryClient.invalidateQueries({ queryKey: SAMPLER_KEYS.sizes })
     },
   })
 }
@@ -53,5 +56,29 @@ export function useSamplingResults(endpointId: string, page = 0) {
     queryKey: SAMPLER_KEYS.results(endpointId, page),
     queryFn: () => sentinelService.sampler.results(endpointId, page),
     enabled: !!endpointId,
+  })
+}
+
+export function useEndpointSizes() {
+  return useQuery({
+    queryKey: SAMPLER_KEYS.sizes,
+    queryFn: sentinelService.sampler.sizes,
+    staleTime: 30_000,
+  })
+}
+
+export function useCorrelation(endpointId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["sampler-correlation", endpointId],
+    queryFn: () => sentinelService.sampler.correlation(endpointId),
+    enabled: enabled && !!endpointId,
+  })
+}
+
+export function useHeaviestEndpoints(serviceId: string) {
+  return useQuery({
+    queryKey: SAMPLER_KEYS.heaviest(serviceId),
+    queryFn: () => sentinelService.sampler.heaviest(serviceId),
+    enabled: !!serviceId,
   })
 }

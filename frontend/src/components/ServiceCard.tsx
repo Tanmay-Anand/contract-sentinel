@@ -1,8 +1,10 @@
+import { useState } from "react"
 import { Link } from "@tanstack/react-router"
-import { AlertTriangle, ArrowRight, RefreshCw } from "lucide-react"
+import { AlertTriangle, ArrowRight, RefreshCw, Zap } from "lucide-react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { sentinelApi } from "@/api/client"
 import { StatusBadge } from "./StatusBadge"
+import { ProfilerPanel } from "@/domains/contract-sentinel/presentation/components/profiler-panel"
 import type { ServiceDto } from "@/api/types"
 
 interface Props {
@@ -11,6 +13,8 @@ interface Props {
 
 export function ServiceCard({ service }: Props) {
   const queryClient = useQueryClient()
+  const [profileOpen, setProfileOpen] = useState(false)
+  const reachable = service.status !== "UNREACHABLE"
 
   const { mutate: poll, isPending } = useMutation({
     mutationFn: () => sentinelApi.poll.one(service.id),
@@ -63,6 +67,7 @@ export function ServiceCard({ service }: Props) {
         </div>
       )}
 
+      {/* Spacer to push footer down */}
       <div className="flex-1" />
 
       {/* Footer */}
@@ -70,18 +75,30 @@ export function ServiceCard({ service }: Props) {
         className="flex items-center justify-between pt-3 border-t"
         style={{ borderColor: "var(--color-border)" }}
       >
-        <button
-          onClick={() => poll()}
-          disabled={isPending}
-          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors hover:bg-slate-50 disabled:opacity-50"
-          style={{
-            color: "var(--color-text-secondary)",
-            borderColor: "var(--color-border)",
-          }}
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${isPending ? "animate-spin" : ""}`} />
-          Poll now
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => poll()}
+            disabled={isPending}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors hover:bg-slate-50 disabled:opacity-50"
+            style={{
+              color: "var(--color-text-secondary)",
+              borderColor: "var(--color-border)",
+            }}
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isPending ? "animate-spin" : ""}`} />
+            Poll now
+          </button>
+          <button
+            onClick={() => setProfileOpen(true)}
+            disabled={!reachable}
+            title={reachable ? "Profile CPU hotspots" : "Service unreachable"}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors hover:bg-slate-50 disabled:opacity-40"
+            style={{ color: "var(--color-text-secondary)", borderColor: "var(--color-border)" }}
+          >
+            <Zap className="w-3.5 h-3.5" />
+            Profile
+          </button>
+        </div>
 
         <Link
           to="/services/$serviceId"
@@ -93,6 +110,8 @@ export function ServiceCard({ service }: Props) {
           <ArrowRight className="w-3.5 h-3.5" />
         </Link>
       </div>
+
+      <ProfilerPanel serviceId={service.id} serviceName={service.name} open={profileOpen} onClose={() => setProfileOpen(false)} />
     </div>
   )
 }

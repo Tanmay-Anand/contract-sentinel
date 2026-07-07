@@ -2,6 +2,7 @@ import { Handle, Position, type NodeProps } from "@xyflow/react"
 import { AlertTriangle, Wifi, WifiOff, Clock } from "lucide-react"
 import { useNavigate } from "@tanstack/react-router"
 import type { ServiceNodeDto } from "../../infrastructure/api/types"
+import type { HandleSpec } from "../pages/graph-page"
 
 const NODE_WIDTH = 220
 
@@ -35,10 +36,13 @@ function StatusIcon({ status }: { status: string }) {
 
 export function ServiceGraphNode({ data }: NodeProps) {
   const navigate = useNavigate()
-  const node = data as ServiceNodeDto & { selected?: boolean }
+  const node = data as ServiceNodeDto & { selected?: boolean; handles?: HandleSpec[] }
   const color = statusColor(node.status)
   const bg    = statusBg(node.status)
   const isSelected = node.selected
+  const handles = node.handles ?? []
+  const targetHandles = handles.filter(h => h.type === "target")
+  const sourceHandles = handles.filter(h => h.type === "source")
 
   return (
     <div
@@ -57,8 +61,14 @@ export function ServiceGraphNode({ data }: NodeProps) {
         userSelect: "none",
       }}
     >
-      <Handle type="target" position={Position.Left}
-        style={{ background: color, width: 8, height: 8, border: "2px solid white" }} />
+      {targetHandles.length > 0
+        ? targetHandles.map(h => (
+            <Handle key={h.id} id={h.id} type="target" position={Position.Left}
+              style={{ background: color, width: 8, height: 8, border: "2px solid white", top: `${h.pct}%` }} />
+          ))
+        : <Handle type="target" position={Position.Left}
+            style={{ background: color, width: 8, height: 8, border: "2px solid white" }} />
+      }
 
       {/* Status + breaking badge row */}
       <div className="flex items-center justify-between mb-1.5">
@@ -102,8 +112,14 @@ export function ServiceGraphNode({ data }: NodeProps) {
         </div>
       )}
 
-      <Handle type="source" position={Position.Right}
-        style={{ background: color, width: 8, height: 8, border: "2px solid white" }} />
+      {sourceHandles.length > 0
+        ? sourceHandles.map(h => (
+            <Handle key={h.id} id={h.id} type="source" position={Position.Right}
+              style={{ background: color, width: 8, height: 8, border: "2px solid white", top: `${h.pct}%` }} />
+          ))
+        : <Handle type="source" position={Position.Right}
+            style={{ background: color, width: 8, height: 8, border: "2px solid white" }} />
+      }
     </div>
   )
 }

@@ -220,6 +220,29 @@ export interface SamplingResultDto {
   undocumentedFields: string[]
   missingFields: string[]
   matchScore: number
+  responseSizeBytes: number | null
+  durationMs: number | null
+}
+
+export interface CorrelationPoint {
+  sizeBytes: number
+  durationMs: number
+}
+
+export interface CorrelationResponse {
+  sufficient: boolean
+  n: number
+  r: number | null
+  slope: number | null
+  classification: string
+  points: CorrelationPoint[]
+}
+
+export interface EndpointSizeDto {
+  serviceId: string
+  httpMethod: string
+  path: string
+  responseSizeBytes: number
 }
 
 export interface SampledEndpointRequest {
@@ -289,6 +312,8 @@ export interface ServiceEdgeDto {
   scanFailedAt: string | null
   stale: boolean
   endpointCalls: EndpointCall[]
+  avgLatencyMs: number | null
+  latencyBand: string | null   // "fast" | "medium" | "slow"
 }
 
 export interface ServiceGraphDto {
@@ -343,4 +368,121 @@ export interface CallCountDto {
   samplerRuns: number
   actuatorMetrics: number
   total: number
+}
+
+export interface DbQueryResponse {
+  columns: string[]
+  rows: unknown[][]
+  rowCount: number
+  executionMs: number
+}
+
+// JFR Profiler
+export interface HotMethodDto {
+  rank: number
+  frame: string
+  samples: number
+  percentage: number
+}
+
+export interface ProfilingRunDto {
+  id: string
+  serviceId: string
+  serviceName: string
+  status: "REQUESTED" | "RECORDING" | "DOWNLOADING" | "PARSING" | "COMPLETE" | "FAILED"
+  durationSeconds: number
+  startedAt: string
+  completedAt: string | null
+  errorMessage: string | null
+  totalSamples: number
+  hotMethods: HotMethodDto[]
+}
+
+// Performance Registry
+export interface EndpointPerformanceRow {
+  serviceId: string
+  serviceName: string
+  httpMethod: string
+  path: string
+  countDelta: number
+  p50Ms: number | null
+  p95Ms: number | null
+  p99Ms: number | null
+  errorRatePct: number
+  responseSizeBytes: number | null
+  p99MedianRatio: number
+  p95Sparkline: number[]
+  volatilityCv: number | null
+  volatilityRating: string
+}
+
+export interface EndpointPerformancePoint {
+  recordedAt: string
+  p50Ms: number | null
+  p95Ms: number | null
+  p99Ms: number | null
+  countDelta: number
+  errorCount: number
+}
+
+export interface EndpointPerformanceDetail {
+  serviceId: string
+  serviceName: string
+  httpMethod: string
+  path: string
+  points: EndpointPerformancePoint[]
+}
+
+// Traces
+export interface TraceSummaryDto {
+  traceId: string
+  rootName: string
+  entryService: string
+  totalDurationMicros: number
+  spanCount: number
+  hasError: boolean
+  startEpochMicros: number
+}
+
+export interface TraceSpanNode {
+  spanId: string
+  parentSpanId: string | null
+  serviceName: string
+  name: string
+  kind: string | null
+  depth: number
+  offsetMicros: number
+  durationMicros: number
+  httpMethod: string | null
+  httpPath: string | null
+  httpStatus: number | null
+}
+
+export interface TraceTreeDto {
+  traceId: string
+  rootName: string
+  totalDurationMicros: number
+  startEpochMicros: number
+  spans: TraceSpanNode[]
+}
+
+// AI Agents
+export interface AgentStep {
+  seq: number
+  type: string   // "thought" | "tool_call" | "tool_result"
+  name: string | null
+  summary: string | null
+  at: string
+}
+
+export interface AgentRunDto {
+  id: string
+  agentType: "DIAGNOSE" | "SCHEMA_RISK"
+  status: "RUNNING" | "COMPLETE" | "FAILED"
+  steps: AgentStep[]
+  resultMarkdown: string | null
+  llmProvider: string | null
+  iterations: number
+  createdAt: string
+  completedAt: string | null
 }

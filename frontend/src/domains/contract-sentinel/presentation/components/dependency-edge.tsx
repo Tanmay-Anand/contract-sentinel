@@ -23,6 +23,13 @@ function pathThroughPoint(
   return `${seg1} ${seg2}`
 }
 
+function latencyColor(band: string | null): string {
+  if (band === "fast") return "#15803d"
+  if (band === "medium") return "#d97706"
+  if (band === "slow") return "#e44d4d"
+  return "#64748b"
+}
+
 function methodColor(method: string): { bg: string; text: string } {
   switch (method.toUpperCase()) {
     case "GET":    return { bg: "#dcfce7", text: "#15803d" }
@@ -168,6 +175,15 @@ export function DependencyEdge({
                 {badge.label}
               </span>
               <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                {edge.avgLatencyMs != null && (
+                  <span style={{
+                    fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 8,
+                    color: latencyColor(edge.latencyBand),
+                    background: `${latencyColor(edge.latencyBand)}1a`,
+                  }} title="Average inter-service round-trip">
+                    {edge.avgLatencyMs.toFixed(1)} ms
+                  </span>
+                )}
                 {edge.stale && (
                   <span style={{ fontSize: 9, color: "#d97706", fontWeight: 600 }}>⚠</span>
                 )}
