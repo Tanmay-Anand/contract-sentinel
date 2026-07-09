@@ -1,4 +1,4 @@
-﻿package io.contractsentinel.stats;
+package io.contractsentinel.stats;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;

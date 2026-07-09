@@ -6,6 +6,12 @@ function scoreColor(score: number): string {
   return "var(--color-breaking)"
 }
 
+export function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
 interface SamplingResultCardProps {
   result: SamplingResultDto
 }
@@ -25,12 +31,20 @@ export function SamplingResultCard({ result }: SamplingResultCardProps) {
         >
           {scorePercent}%
         </span>
-        <div>
+        <div className="flex-1">
           <p className="font-medium" style={{ color: "var(--color-text-primary)" }}>Match Score</p>
           <p style={{ color: "var(--color-text-secondary)" }}>
             HTTP {result.httpStatus} · {new Date(result.sampledAt).toLocaleString()}
           </p>
         </div>
+        {result.responseSizeBytes != null && (
+          <span
+            className="font-mono px-2 py-0.5 rounded"
+            style={{ background: "var(--color-background)", color: "var(--color-text-secondary)", border: "1px solid var(--color-border)" }}
+          >
+            {formatBytes(result.responseSizeBytes)}
+          </span>
+        )}
       </div>
 
       {result.undocumentedFields.length > 0 && (

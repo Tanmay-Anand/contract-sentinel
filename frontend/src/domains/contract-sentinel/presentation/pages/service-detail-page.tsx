@@ -12,6 +12,8 @@ import { useSnapshots } from "../hooks/use-snapshots"
 import { useLatency } from "../hooks/use-latency"
 import { useDeployments } from "../hooks/use-deployments"
 import { useSpecDiff } from "../hooks/use-diff"
+import { useHeaviestEndpoints } from "../hooks/use-sampler"
+import { formatBytes } from "../components/sampling-result-card"
 
 export default function ServiceDetailPage() {
   const { serviceId } = useParams({ from: "/services/$serviceId" })
@@ -28,6 +30,7 @@ export default function ServiceDetailPage() {
   const { data: latency }     = useLatency(serviceId)
   const { data: deployments } = useDeployments(serviceId, 0)
   const { data: diff }        = useSpecDiff(selectedSnapshotId)
+  const { data: heaviest }    = useHeaviestEndpoints(serviceId)
 
   const totalPages = drift?.totalPages ?? 0
 
@@ -169,6 +172,54 @@ export default function ServiceDetailPage() {
               </div>
             )}
           </div>
+
+          {/* Top 5 heaviest endpoints */}
+          {heaviest && heaviest.length > 0 && (
+            <div className="rounded-xl border p-4"
+              style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}>
+              <h2 className="text-sm font-semibold mb-3" style={{ color: "var(--color-text-primary)" }}>
+                Top {heaviest.length} Heaviest Endpoints
+              </h2>
+              <div className="space-y-2">
+                {heaviest.map((ep, i) => {
+                  const budget = ep.path.trimEnd().endsWith('}') ? 50 * 1024 : 100 * 1024
+                  const over = ep.responseSizeBytes > budget
+                  const pct = Math.min(100, Math.round((ep.responseSizeBytes / budget) * 100))
+                  return (
+                    <div key={`${ep.httpMethod}:${ep.path}`}>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-mono font-bold w-3 text-right"
+                          style={{ color: "var(--color-text-secondary)" }}>
+                          {i + 1}
+                        </span>
+                        <span className="text-xs font-medium px-1.5 py-0.5 rounded"
+                          style={{ background: "var(--color-background)", color: "var(--color-text-secondary)" }}>
+                          {ep.httpMethod}
+                        </span>
+                        <code className="text-xs flex-1 truncate" style={{ color: "var(--color-text-primary)" }}>
+                          {ep.path}
+                        </code>
+                        <span className="text-xs font-mono"
+                          style={{ color: over ? "var(--color-breaking)" : "var(--color-text-secondary)", flexShrink: 0 }}>
+                          {over && "⚠ "}{formatBytes(ep.responseSizeBytes)}
+                        </span>
+                      </div>
+                      <div className="h-1 rounded-full ml-5" style={{ background: "var(--color-border)" }}>
+                        <div className="h-1 rounded-full"
+                          style={{
+                            width: `${pct}%`,
+                            background: over ? "var(--color-breaking)" : "var(--color-primary)",
+                          }} />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              <p className="text-xs mt-3" style={{ color: "var(--color-text-secondary)" }}>
+                Budget: 100 KB (list) · 50 KB (single resource)
+              </p>
+            </div>
+          )}
 
           {/* Latency chart */}
           <div className="rounded-xl border p-4"

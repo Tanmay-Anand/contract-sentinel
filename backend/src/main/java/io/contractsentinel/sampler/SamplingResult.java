@@ -44,4 +44,10 @@ public class SamplingResult {
 
     @Column(nullable = false)
     private int matchScore;
+
+    @Column(name = "response_size_bytes")
+    private Long responseSizeBytes;
+
+    @Column(name = "duration_ms")
+    private Long durationMs;
 }

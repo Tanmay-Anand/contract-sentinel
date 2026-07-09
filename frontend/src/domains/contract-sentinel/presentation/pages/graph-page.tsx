@@ -15,6 +15,7 @@ import {
 import { ServiceGraphNode } from "../components/service-graph-node"
 import { DependencyCardNode } from "../components/dependency-card-node"
 import { DbSchemaExplorer } from "../components/db-schema-explorer"
+import { QueryConsole } from "../components/query-console"
 import { useGraph, useScanGraph, useBlastRadius, useAddManualEdge, useRemoveEdge, useDbSchema } from "../hooks/use-graph"
 import { useServices } from "../hooks/use-services"
 import { useDriftEvents } from "../hooks/use-drift"
@@ -24,7 +25,7 @@ const nodeTypes = { serviceNode: ServiceGraphNode, dependencyCardNode: Dependenc
 
 // Module-level: survive tab switches (component unmount/remount)
 // Bump LAYOUT_VERSION whenever the default layout algorithm changes — forces a fresh layout.
-const LAYOUT_VERSION = 6
+const LAYOUT_VERSION = 8
 const _savedVersion = (globalThis as any).__graphLayoutVersion
 if (_savedVersion !== LAYOUT_VERSION) {
   (globalThis as any).__graphLayoutVersion = LAYOUT_VERSION
@@ -34,28 +35,57 @@ if (_savedVersion !== LAYOUT_VERSION) {
 const savedPositions: Record<string, { x: number; y: number }> = (globalThis as any).__savedPositions
 let graphInitialized: boolean = (globalThis as any).__graphInitialized
 
-// ELK-based layout. Takes generic {id, width, height} node specs and
-// {id, source, target} edge specs so it can handle both service nodes and relay card nodes.
 const elk = new ELK()
 
+function detectCycles(edges: { source: string; target: string }[]): string[] {
+  const adj = new Map<string, string[]>()
+  edges.forEach(e => {
+    if (!adj.has(e.source)) adj.set(e.source, [])
+    adj.get(e.source)!.push(e.target)
+  })
+  const visited = new Set<string>()
+  const stack   = new Set<string>()
+  const cycles: string[] = []
+  function dfs(node: string) {
+    visited.add(node); stack.add(node)
+    for (const nb of adj.get(node) ?? []) {
+      if (!visited.has(nb)) dfs(nb)
+      else if (stack.has(nb)) cycles.push(`${node} → ${nb}`)
+    }
+    stack.delete(node)
+  }
+  adj.forEach((_, n) => { if (!visited.has(n)) dfs(n) })
+  return cycles
+}
+
 async function computeElkLayout(
-  elkNodes: { id: string; width: number; height: number }[],
-  elkEdges: { id: string; source: string; target: string }[],
+  elkNodes: { id: string; width: number; height: number; ports?: { id: string; side: "WEST" | "EAST" }[] }[],
+  elkEdges: { id: string; source: string; target: string; sourcePort: string; targetPort: string }[],
 ): Promise<Record<string, { x: number; y: number }>> {
   const graph = {
     id: "root",
     layoutOptions: {
       "elk.algorithm":                             "layered",
       "elk.direction":                             "RIGHT",
-      "elk.spacing.nodeNode":                      "50",
+      "elk.spacing.nodeNode":                      "60",
       "elk.layered.spacing.nodeNodeBetweenLayers": "80",
+      "elk.spacing.edgeNode":                      "20",
       "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
       "elk.layered.nodePlacement.strategy":        "BRANDES_KOEPF",
       "elk.edgeRouting":                           "ORTHOGONAL",
       "elk.layered.unnecessaryBendpoints":         "true",
+      "elk.layered.cycleBreaking.strategy":        "GREEDY",
     },
-    children: elkNodes.map(n => ({ id: n.id, width: n.width, height: n.height })),
-    edges: elkEdges.map(e => ({ id: e.id, sources: [e.source], targets: [e.target] })),
+    children: elkNodes.map(n => ({
+      id: n.id, width: n.width, height: n.height,
+      ports: (n.ports ?? []).map(p => ({ id: p.id, properties: { "port.side": p.side } })),
+      properties: { "portConstraints": "FIXED_SIDE" },
+    })),
+    edges: elkEdges.map(e => ({
+      id: e.id,
+      sources: [e.sourcePort],
+      targets: [e.targetPort],
+    })),
   }
 
   const layout = await elk.layout(graph)
@@ -68,15 +98,14 @@ async function computeElkLayout(
   return positions
 }
 
-// Estimate visual size of each dependency card for ELK so it reserves the right space.
 function estimateRelaySize(edge: ServiceEdgeDto): { width: number; height: number } {
   if (edge.propertyName === "shared-database") {
-    return { width: 200, height: 172 } // header + ~7 table rows + "+more"
+    return { width: 220, height: 210 }
   }
   const calls = edge.endpointCalls?.length ?? 0
-  if (calls === 0) return { width: 150, height: 30 }
+  if (calls === 0) return { width: 200, height: 56 }
   const visible = Math.min(calls, 5)
-  return { width: 210, height: 30 + visible * 22 + (calls > 5 ? 16 : 0) }
+  return { width: 240, height: 56 + visible * 22 + (calls > 5 ? 18 : 0) }
 }
 
 interface GraphElements { relayNodes: Node[]; allEdges: Edge[] }
@@ -126,6 +155,42 @@ function buildGraphElements(apiEdges: ServiceEdgeDto[]): GraphElements {
   return { relayNodes, allEdges }
 }
 
+export type HandleSpec = { id: string; type: "source" | "target"; pct: number }
+
+interface HandleAssignments {
+  nodeHandlesMap: Map<string, HandleSpec[]>
+  // edge id → {sourceHandle, targetHandle} for React Flow + ELK
+  edgeHandleIds:  Map<string, { src: string; tgt: string }>
+}
+
+function buildHandleAssignments(
+  allNodeIds: string[],
+  edges: Edge[],
+): HandleAssignments {
+  const nodeHandlesMap = new Map<string, HandleSpec[]>()
+  allNodeIds.forEach(id => nodeHandlesMap.set(id, []))
+
+  const edgeHandleIds = new Map<string, { src: string; tgt: string }>()
+
+  edges.forEach(e => {
+    const src = `${e.source!}-src-${e.id}`
+    const tgt = `${e.target!}-tgt-${e.id}`
+    edgeHandleIds.set(e.id, { src, tgt })
+    nodeHandlesMap.get(e.source!)?.push({ id: src, type: "source", pct: 0 })
+    nodeHandlesMap.get(e.target!)?.push({ id: tgt, type: "target", pct: 0 })
+  })
+
+  // Compute evenly-distributed % positions for each side
+  nodeHandlesMap.forEach(handles => {
+    const tgts = handles.filter(h => h.type === "target")
+    const srcs = handles.filter(h => h.type === "source")
+    tgts.forEach((h, i) => { h.pct = (i + 1) / (tgts.length + 1) * 100 })
+    srcs.forEach((h, i) => { h.pct = (i + 1) / (srcs.length + 1) * 100 })
+  })
+
+  return { nodeHandlesMap, edgeHandleIds }
+}
+
 type SidebarMode =
   | { kind: "node"; nodeId: string }
   | { kind: "edge"; edge: ServiceEdgeDto }
@@ -173,7 +238,7 @@ export default function GraphPage() {
   const { mutate: addManual } = useAddManualEdge()
   const { mutate: removeEdge } = useRemoveEdge()
 
-  const [activeTab, setActiveTab] = useState<"service" | "database">("service")
+  const [activeTab, setActiveTab] = useState<"service" | "database" | "query">("service")
   const [nodes, setNodes, onNodesChangeBase] = useNodesState<Node>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
   const [sidebar, setSidebar] = useState<SidebarMode>(null)
@@ -201,7 +266,26 @@ export default function GraphPage() {
   useEffect(() => {
     if (!graphData) return
 
-    const { relayNodes, allEdges } = buildGraphElements(graphData.edges)
+    const { relayNodes: baseRelayNodes, allEdges: baseEdges } = buildGraphElements(graphData.edges)
+
+    // ── Assign per-edge handle IDs (once per data load) ───────────────────────
+    const allNodeIds = [
+      ...graphData.nodes.map(n => n.id),
+      ...baseRelayNodes.map(n => n.id),
+    ]
+    const { nodeHandlesMap, edgeHandleIds } = buildHandleAssignments(allNodeIds, baseEdges)
+
+    // Augment every React Flow edge with sourceHandle / targetHandle
+    const allEdges = baseEdges.map(e => {
+      const ids = edgeHandleIds.get(e.id)
+      return ids ? { ...e, sourceHandle: ids.src, targetHandle: ids.tgt } : e
+    })
+
+    // Relay nodes: carry handles in data so the component renders the right Handle IDs
+    const relayNodes = baseRelayNodes.map(n => ({
+      ...n,
+      data: { ...n.data, handles: nodeHandlesMap.get(n.id) ?? [] },
+    }))
 
     if (!instanceInitialized.current) {
       instanceInitialized.current = true
@@ -212,7 +296,7 @@ export default function GraphPage() {
         graphData.nodes.map(n => ({
           id: n.id, type: "serviceNode" as const,
           position: posById[n.id] ?? { x: 0, y: 0 },
-          data: n,
+          data: { ...n, handles: nodeHandlesMap.get(n.id) ?? [] },
         }))
 
       const makeRelayNodes = (posById: Record<string, { x: number; y: number }>) =>
@@ -229,12 +313,33 @@ export default function GraphPage() {
         setEdges(allEdges)
 
         const elkNodeSpecs = [
-          ...graphData.nodes.map(n => ({ id: n.id, width: 240, height: 90 })),
-          ...graphData.edges.map(e => ({ id: `relay-${e.id}`, ...estimateRelaySize(e) })),
+          ...graphData.nodes.map(n => {
+            const h = nodeHandlesMap.get(n.id) ?? []
+            const inC  = h.filter(x => x.type === "target").length
+            const outC = h.filter(x => x.type === "source").length
+            return {
+              id: n.id, width: 240,
+              height: Math.max(90, Math.max(inC, outC, 1) * 26 + 24),
+              ports: h.map(x => ({ id: x.id, side: (x.type === "target" ? "WEST" : "EAST") as "WEST" | "EAST" })),
+            }
+          }),
+          ...graphData.edges.map(e => {
+            const relayId = `relay-${e.id}`
+            const h = nodeHandlesMap.get(relayId) ?? []
+            return {
+              id: relayId, ...estimateRelaySize(e),
+              ports: h.map(x => ({ id: x.id, side: (x.type === "target" ? "WEST" : "EAST") as "WEST" | "EAST" })),
+            }
+          }),
         ]
-        const elkEdgeSpecs = allEdges.map(e => ({
-          id: e.id, source: e.source!, target: e.target!,
-        }))
+
+        const elkEdgeSpecs = allEdges.map(e => {
+          const ids = edgeHandleIds.get(e.id)!
+          return { id: e.id, source: e.source!, target: e.target!, sourcePort: ids.src, targetPort: ids.tgt }
+        })
+
+        const cycles = detectCycles(elkEdgeSpecs)
+        if (cycles.length) console.warn("[ELK] cycles detected (GREEDY breaker active):", cycles)
 
         computeElkLayout(elkNodeSpecs, elkEdgeSpecs).then(pos => {
           setNodes(prev => prev.map(n => ({ ...n, position: pos[n.id] ?? n.position })))
@@ -245,13 +350,13 @@ export default function GraphPage() {
     } else {
       // Subsequent refetches: keep current positions, only update service node data
       setNodes(prev => {
-        const posById   = Object.fromEntries(prev.map(n => [n.id, n.position]))
-        const dataById  = Object.fromEntries(graphData.nodes.map(n => [n.id, n]))
+        const posById  = Object.fromEntries(prev.map(n => [n.id, n.position]))
+        const dataById = Object.fromEntries(graphData.nodes.map(n => [n.id, n]))
         return [
           ...graphData.nodes.map(n => ({
             id: n.id, type: "serviceNode" as const,
             position: posById[n.id] ?? { x: 0, y: 0 },
-            data: dataById[n.id] ?? n,
+            data: { ...dataById[n.id] ?? n, handles: nodeHandlesMap.get(n.id) ?? [] },
           })),
           ...relayNodes.map(n => ({ ...n, position: posById[n.id] ?? { x: 0, y: 0 } })),
         ]
@@ -342,6 +447,16 @@ export default function GraphPage() {
               }}>
               Database Schema
             </button>
+            <button
+              onClick={() => setActiveTab("query")}
+              className="px-3 py-1.5 font-medium transition-colors border-l"
+              style={{
+                borderColor: "var(--color-border)",
+                background: activeTab === "query" ? "var(--color-primary)" : "var(--color-surface)",
+                color: activeTab === "query" ? "#fff" : "var(--color-text-secondary)",
+              }}>
+              Query Console
+            </button>
           </div>
 
           {activeTab === "service" && (
@@ -383,6 +498,9 @@ export default function GraphPage() {
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         {/* Database Schema Graph */}
         {activeTab === "database" && <DbSchemaExplorer />}
+
+        {/* Query Console */}
+        {activeTab === "query" && <QueryConsole />}
 
         {/* Service Dependency Graph + sidebar */}
         {activeTab === "service" && <>

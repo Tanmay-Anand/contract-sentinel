@@ -25,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestClient;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -98,7 +99,13 @@ public class ResponseSamplerServiceImpl implements ResponseSamplerService {
             }
 
             callCounter.incSamplerRuns();
+            long startNanos = System.nanoTime();
             String responseBody = requestSpec.retrieve().body(String.class);
+            long durationMs = (System.nanoTime() - startNanos) / 1_000_000L;
+
+            long sizeBytes = responseBody != null
+                    ? responseBody.getBytes(StandardCharsets.UTF_8).length
+                    : 0L;
 
             Set<String> actualFields = new LinkedHashSet<>();
             if (responseBody != null && !responseBody.isBlank()) {
@@ -130,6 +137,8 @@ public class ResponseSamplerServiceImpl implements ResponseSamplerService {
                     .undocumentedFields(toJson(new ArrayList<>(undocumented)))
                     .missingFields(toJson(new ArrayList<>(missing)))
                     .matchScore(matchScore)
+                    .responseSizeBytes(sizeBytes)
+                    .durationMs(durationMs)
                     .build();
 
             endpoint.setLastSampledAt(Instant.now());
@@ -201,6 +210,67 @@ public class ResponseSamplerServiceImpl implements ResponseSamplerService {
                 }
             }
         }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<EndpointSizeDto> getEndpointSizes() {
+        return endpointRepo.findAll().stream()
+                .flatMap(ep -> resultRepo.findTopByEndpointOrderBySampledAtDesc(ep)
+                        .filter(r -> r.getResponseSizeBytes() != null)
+                        .map(r -> new EndpointSizeDto(
+                                ep.getService().getId(), ep.getHttpMethod(), ep.getPath(), r.getResponseSizeBytes()))
+                        .stream())
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<EndpointSizeDto> getHeaviestEndpoints(UUID serviceId) {
+        ServiceRegistry service = serviceRegistryRepo.findById(serviceId)
+                .orElseThrow(() -> SentinelException.notFound("Service not found: " + serviceId, RequestContext.getRequestId()));
+        return endpointRepo.findByService(service).stream()
+                .flatMap(ep -> resultRepo.findTopByEndpointOrderBySampledAtDesc(ep)
+                        .filter(r -> r.getResponseSizeBytes() != null)
+                        .map(r -> new EndpointSizeDto(
+                                ep.getService().getId(), ep.getHttpMethod(), ep.getPath(), r.getResponseSizeBytes()))
+                        .stream())
+                .sorted(Comparator.comparingLong(EndpointSizeDto::responseSizeBytes).reversed())
+                .limit(5)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public CorrelationResponse correlation(UUID endpointId) {
+        SampledEndpoint endpoint = endpointRepo.findById(endpointId)
+                .orElseThrow(() -> SentinelException.notFound("Sampled endpoint not found: " + endpointId, RequestContext.getRequestId()));
+
+        List<SamplingResult> results = resultRepo
+                .findByEndpointAndResponseSizeBytesIsNotNullAndDurationMsIsNotNullOrderBySampledAt(endpoint);
+
+        if (results.size() < 10) {
+            return CorrelationResponse.insufficient(results.size());
+        }
+
+        int n = results.size();
+        double[] sizes = new double[n];
+        double[] durations = new double[n];
+        List<CorrelationResponse.Point> points = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            SamplingResult r = results.get(i);
+            sizes[i] = r.getResponseSizeBytes();
+            durations[i] = r.getDurationMs();
+            points.add(new CorrelationResponse.Point(r.getResponseSizeBytes(), r.getDurationMs()));
+        }
+
+        CorrelationAnalyzer.Result analysis = CorrelationAnalyzer.analyze(sizes, durations);
+        return new CorrelationResponse(true, n,
+                round(analysis.r()), round(analysis.slope()), analysis.classification(), points);
+    }
+
+    private static Double round(double v) {
+        return Math.round(v * 1000.0) / 1000.0;
     }
 
     private void extractFields(JsonNode node, String prefix, Set<String> fields, int depth) {

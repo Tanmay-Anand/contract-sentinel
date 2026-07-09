@@ -1,6 +1,7 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react"
 import { useDbSchema } from "../hooks/use-graph"
 import type { ServiceEdgeDto } from "../../infrastructure/api/types"
+import type { HandleSpec } from "../pages/graph-page"
 
 function methodColor(method: string): { bg: string; text: string } {
   switch (method.toUpperCase()) {
@@ -27,6 +28,9 @@ export function humanizeBadge(edge: ServiceEdgeDto): { label: string; bg: string
 export function DependencyCardNode({ data }: NodeProps) {
   const edge     = data.edge     as ServiceEdgeDto
   const selected = data.selected as boolean | undefined
+  const handles  = (data.handles ?? []) as HandleSpec[]
+  const tgtHandle = handles.find(h => h.type === "target")
+  const srcHandle = handles.find(h => h.type === "source")
 
   const isSharedDb = edge.propertyName === "shared-database"
   const { data: schema } = useDbSchema(isSharedDb ? edge.id : null)
@@ -42,7 +46,9 @@ export function DependencyCardNode({ data }: NodeProps) {
 
   return (
     <>
-      <Handle type="target" position={Position.Left}  style={{ opacity: 0, pointerEvents: "none" }} />
+      <Handle type="target" position={Position.Left}
+        {...(tgtHandle ? { id: tgtHandle.id } : {})}
+        style={{ opacity: 0, pointerEvents: "none" }} />
       <div style={{
         background:  "var(--color-surface)",
         border:      `1.5px solid ${selected ? badge.text : `${badge.text}55`}`,
@@ -128,7 +134,9 @@ export function DependencyCardNode({ data }: NodeProps) {
           </div>
         )}
       </div>
-      <Handle type="source" position={Position.Right} style={{ opacity: 0, pointerEvents: "none" }} />
+      <Handle type="source" position={Position.Right}
+        {...(srcHandle ? { id: srcHandle.id } : {})}
+        style={{ opacity: 0, pointerEvents: "none" }} />
     </>
   )
 }

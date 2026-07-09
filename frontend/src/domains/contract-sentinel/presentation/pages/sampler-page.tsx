@@ -9,7 +9,8 @@ import {
   useSamplingResults,
 } from "../hooks/use-sampler"
 import { useServices } from "../hooks/use-services"
-import { SamplingResultCard } from "../components/sampling-result-card"
+import { SamplingResultCard, formatBytes } from "../components/sampling-result-card"
+import { SizeLatencyScatter } from "../components/size-latency-scatter"
 import { MethodBadge } from "../components/method-badge"
 import type { SampledEndpointRequest } from "../../infrastructure/api/types"
 
@@ -104,17 +105,61 @@ function RegisterForm({
   )
 }
 
+function SizeSparkline({ results }: { results: { responseSizeBytes: number | null }[] }) {
+  const sizes = results
+    .map(r => r.responseSizeBytes)
+    .filter((n): n is number => n != null)
+    .reverse()
+
+  if (sizes.length < 2) return null
+
+  const W = 80, H = 22
+  const min = Math.min(...sizes)
+  const max = Math.max(...sizes)
+  const range = max - min || 1
+  const points = sizes
+    .map((s, i) => `${(i / (sizes.length - 1)) * W},${H - ((s - min) / range) * (H - 2) - 1}`)
+    .join(" ")
+
+  return (
+    <svg width={W} height={H} style={{ display: "inline-block", verticalAlign: "middle" }}>
+      <polyline points={points} fill="none" stroke="var(--color-primary)" strokeWidth="1.5" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 function EndpointResultsRow({ endpointId }: { endpointId: string }) {
   const { data } = useSamplingResults(endpointId, 0)
-  const results = data?.content.slice(0, 5) ?? []
+  const allResults = data?.content ?? []
+  const results = allResults.slice(0, 5)
 
   if (results.length === 0) {
     return <p className="text-xs py-2" style={{ color: "var(--color-text-secondary)" }}>No results yet. Run a sample.</p>
   }
 
+  const latestSize = results[0]?.responseSizeBytes
+
   return (
     <div className="space-y-2 pt-2">
+      {latestSize != null && (
+        <div className="flex items-center gap-3 pb-1">
+          <span className="text-xs font-medium" style={{ color: "var(--color-text-secondary)" }}>
+            Response size trend
+          </span>
+          <SizeSparkline results={allResults} />
+          <span className="text-xs font-mono" style={{ color: "var(--color-text-secondary)" }}>
+            {formatBytes(latestSize)}
+          </span>
+        </div>
+      )}
       {results.map(r => <SamplingResultCard key={r.id} result={r} />)}
+
+      <div className="pt-2 border-t mt-2" style={{ borderColor: "var(--color-border)" }}>
+        <p className="text-xs font-semibold pt-1" style={{ color: "var(--color-text-primary)" }}>
+          Payload size vs response time
+        </p>
+        <SizeLatencyScatter endpointId={endpointId} enabled />
+      </div>
     </div>
   )
 }

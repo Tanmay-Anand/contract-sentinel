@@ -1,7 +1,9 @@
+import { useState } from "react"
 import type { ServiceDto } from "../../infrastructure/api/types"
 import { Link } from "@tanstack/react-router"
-import { AlertTriangle, ArrowRight, RefreshCw } from "lucide-react"
+import { AlertTriangle, ArrowRight, RefreshCw, Zap } from "lucide-react"
 import { StatusBadge } from "./status-badge"
+import { ProfilerPanel } from "./profiler-panel"
 import { usePollOne } from "../hooks/use-services"
 
 interface Props {
@@ -10,7 +12,9 @@ interface Props {
 
 export function ServiceCard({ service }: Props) {
   const { mutate: poll, isPending } = usePollOne(service.id)
+  const [profileOpen, setProfileOpen] = useState(false)
   const hasBreaking = service.breakingDriftCount > 0
+  const reachable = service.status !== "UNREACHABLE"
   const fullUrl = `${service.baseUrl}${service.specPath}`
 
   return (
@@ -55,15 +59,27 @@ export function ServiceCard({ service }: Props) {
         className="flex items-center justify-between pt-3 border-t"
         style={{ borderColor: "var(--color-border)" }}
       >
-        <button
-          onClick={() => poll()}
-          disabled={isPending}
-          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors hover:bg-slate-50 disabled:opacity-50"
-          style={{ color: "var(--color-text-secondary)", borderColor: "var(--color-border)" }}
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${isPending ? "animate-spin" : ""}`} />
-          Poll now
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => poll()}
+            disabled={isPending}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors hover:bg-slate-50 disabled:opacity-50"
+            style={{ color: "var(--color-text-secondary)", borderColor: "var(--color-border)" }}
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isPending ? "animate-spin" : ""}`} />
+            Poll now
+          </button>
+          <button
+            onClick={() => setProfileOpen(true)}
+            disabled={!reachable}
+            title={reachable ? "Profile CPU hotspots" : "Service unreachable"}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors hover:bg-slate-50 disabled:opacity-40"
+            style={{ color: "var(--color-text-secondary)", borderColor: "var(--color-border)" }}
+          >
+            <Zap className="w-3.5 h-3.5" />
+            Profile
+          </button>
+        </div>
 
         <Link
           to="/services/$serviceId"
@@ -75,6 +91,8 @@ export function ServiceCard({ service }: Props) {
           <ArrowRight className="w-3.5 h-3.5" />
         </Link>
       </div>
+
+      <ProfilerPanel serviceId={service.id} serviceName={service.name} open={profileOpen} onClose={() => setProfileOpen(false)} />
     </div>
   )
 }

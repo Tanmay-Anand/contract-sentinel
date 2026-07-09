@@ -15,6 +15,7 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 
+import java.util.NoSuchElementException;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -82,6 +83,14 @@ public class HttpExceptionHandler {
                 .body(new SentinelException(ex.getMessage(), HttpStatus.BAD_REQUEST, rid));
     }
 
+    @ExceptionHandler(NoSuchElementException.class)
+    public ResponseEntity<SentinelException> handleNoSuchElement(NoSuchElementException ex) {
+        String rid = RequestContext.getRequestId();
+        log.warn("Resource not found: {} | requestId={}", ex.getMessage(), rid);
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new SentinelException(ex.getMessage(), HttpStatus.NOT_FOUND, rid));
+    }
+
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<SentinelException> handleNoResourceFound(NoResourceFoundException ex) {
         String rid = RequestContext.getRequestId();
@@ -106,3 +115,4 @@ public class HttpExceptionHandler {
                 .body(new SentinelException("An unexpected error occurred. Please try again later.", HttpStatus.INTERNAL_SERVER_ERROR, rid));
     }
 }
+

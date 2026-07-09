@@ -19,4 +19,10 @@ public interface ResponseSamplerService {
     Page<SamplingResultDto> listResults(UUID endpointId, Pageable pageable);
 
     void scheduleAll();
+
+    List<EndpointSizeDto> getEndpointSizes();
+
+    List<EndpointSizeDto> getHeaviestEndpoints(UUID serviceId);
+
+    CorrelationResponse correlation(UUID endpointId);
 }
