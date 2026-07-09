@@ -96,7 +96,12 @@ public final class HttpServerMetricsParser {
         if (uri.equals("UNKNOWN") || uri.equals("None") || uri.equals("/**")) {
             return false;
         }
-        return !uri.startsWith("/actuator");
+        return !uri.startsWith("/actuator")
+                && !uri.startsWith("/v3/api-docs")
+                && !uri.startsWith("/swagger-ui")
+                && !uri.startsWith("/swagger-resources")
+                && !uri.startsWith("/webjars")
+                && !uri.equals("/scalar");
     }
 
     private static Map<String, String> parseLabels(String labelBlock) {

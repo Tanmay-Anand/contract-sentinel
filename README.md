@@ -26,10 +26,7 @@ The problem you have right now: Suppose you have three services running. A field
 - **Explores** your database schema: foreign key relationships, cross-service table dependencies
 - **Queries** any monitored service's database directly from the UI — read-only SQL console with FK-aware graph visualization
 - **Tracks** latency, endpoint usage, response samples, and dead endpoints
-- **Profiles** CPU hotspots on demand via Java Flight Recorder — no agent, no JProfiler license
-- **Ranks** every endpoint in a performance registry with real p50/p95/p99, error rate, size, and volatility
-- **Traces** cross-service request waterfalls (Micrometer/Zipkin) and inter-service network latency on the graph
-- **Diagnoses** slow endpoints and assesses migration risk with autonomous LLM agents (Ollama or Claude)
+- **Analyses** schema changes with an AI agent (Claude or local Ollama) to assess migration risk
 - **Alerts** via configured channels when breaking changes are detected
 
 ---
@@ -42,17 +39,12 @@ The problem you have right now: Suppose you have three services running. A field
 | **Impact panel** | Per drift event: which services call the affected endpoint (direct hit vs indirect dependency) |
 | **Mark as reviewed** | Toggle "Mark it" / "Marked" per drift event — bidirectional acknowledge/unacknowledge |
 | **Dependency graph** | ELK.js-powered layered graph: services as nodes, shared DBs / REST calls / webhooks as relay cards |
-| **DB schema explorer** | Click any table → see it + 1-hop FK neighbors; progressive expand; cross-service FKs highlighted; column detail panel |
-| **Query Console** | Monaco-powered SQL editor — browse tables, run SELECT queries, view results as a table or a FK-aware force graph |
-| **API Catalogue** | Browse every endpoint across all services with request/response schemas |
+| **DB schema explorer** | Click any table → see it + 1-hop FK neighbors; progressive expand; cross-service FKs highlighted |
+| **API Catalogue** | Browse every endpoint across all services with request/response schemas and latency pills |
 | **Infrastructure view** | Container health, gateway routes, uptime |
-| **Latency tracking** | Per-endpoint p50/p95/p99 latency history |
-| **Response sampler** | Live response samples per endpoint for regression detection, with payload-size vs latency correlation |
-| **JFR Profiler** | One-click Java Flight Recorder session per service → ranked top hot methods by CPU sample share |
-| **Performance Registry** | One sortable row per endpoint: Δcount, p50/p95/p99, error rate, size, 7-day sparkline, relative p99 ranking, volatility score |
-| **Request Waterfall** | Distributed traces assembled into per-request waterfall diagrams, colour-coded by service |
-| **Inter-service latency** | Dependency-graph edges annotated with average round-trip time (green/amber/red bands) |
-| **AI Agents** | Autonomous performance-diagnosis and schema-change-risk agents (pluggable Ollama / Claude) |
+| **Performance tracking** | Per-endpoint p50/p95 latency scraped from Prometheus; sparklines and volatility over time |
+| **Response sampler** | Configure and run live response samples; durationMs feeds latency pills when Prometheus has no data |
+| **AI schema analysis** | LLM agent (Claude or Ollama) analyses schema diffs and scores migration risk |
 | **Alert channels** | Webhook / email alerts on breaking contract changes |
 
 ---
@@ -259,7 +251,7 @@ All backend configuration lives in `backend/src/main/resources/application.yaml`
 ```yaml
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/contract_sentinel
+    url: ${SENTINEL_DB_URL:jdbc:postgresql://localhost:5432/contract_sentinel}
     username: postgres
     password: password             # change in production
   jpa:
@@ -304,7 +296,28 @@ sentinel:
   # Database schema introspection (for DB schema explorer tab)
   db:
     schema: public                 # PostgreSQL schema to inspect
+
+  # AI-powered schema risk analysis (optional)
+  llm:
+    provider: ${SENTINEL_LLM_PROVIDER:ollama}   # ollama | claude
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      model: ${OLLAMA_MODEL:qwen2.5:14b}
+    claude:
+      model: ${SENTINEL_LLM_CLAUDE_MODEL:claude-sonnet-4-5}
+      api-key: ${SENTINEL_LLM_CLAUDE_API_KEY:}  # never commit a real key
 ```
+
+**Environment variables summary:**
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `SENTINEL_DB_URL` | `jdbc:postgresql://localhost:5432/contract_sentinel` | Override the database JDBC URL |
+| `SENTINEL_LLM_PROVIDER` | `ollama` | AI provider: `ollama` or `claude` |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
+| `OLLAMA_MODEL` | `qwen2.5:14b` | Ollama model to use |
+| `SENTINEL_LLM_CLAUDE_MODEL` | `claude-sonnet-4-5` | Claude model ID |
+| `SENTINEL_LLM_CLAUDE_API_KEY` | _(empty)_ | Anthropic API key — set via env, never in yaml |
 
 ---
 

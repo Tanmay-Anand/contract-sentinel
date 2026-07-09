@@ -2,7 +2,7 @@ spring:
   application:
     name: contract-sentinel
   datasource:
-    url: jdbc:postgresql://localhost:5432/contract_sentinel
+    url: ${SENTINEL_DB_URL:jdbc:postgresql://localhost:5432/contract_sentinel}
     username: postgres
     password: password
   jpa:
