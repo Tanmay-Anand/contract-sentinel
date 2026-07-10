@@ -1,8 +1,9 @@
 package io.contractsentinel.trace;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import io.contractsentinel.config.RequestContext;
 import io.contractsentinel.exception.SentinelException;
+import io.contractsentinel.ws.WebSocketEventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -20,6 +21,7 @@ import java.util.stream.Collectors;
 public class TraceServiceImpl implements TraceService {
 
     private final TraceSpanRepository spanRepository;
+    private final WebSocketEventPublisher eventPublisher;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
@@ -51,7 +53,10 @@ public class TraceServiceImpl implements TraceService {
                     .build());
         }
         spanRepository.saveAll(entities);
-        log.trace("Ingested {} trace spans", entities.size());
+
+        Set<String> traceIds = entities.stream().map(TraceSpan::getTraceId).collect(Collectors.toSet());
+        log.debug("Received {} Zipkin span(s) across {} trace(s)", entities.size(), traceIds.size());
+        eventPublisher.publish("trace.received", Map.of("count", traceIds.size(), "traceIds", traceIds));
     }
 
     @Override
@@ -86,8 +91,11 @@ public class TraceServiceImpl implements TraceService {
                 continue;
             }
 
+            String rootName = (root.getHttpMethod() != null && root.getHttpPath() != null)
+                    ? root.getHttpMethod().toUpperCase() + " " + root.getHttpPath()
+                    : root.getSpanName();
             summaries.add(new TraceSummaryDto(
-                    entry.getKey(), root.getSpanName(), root.getServiceName(),
+                    entry.getKey(), rootName, root.getServiceName(),
                     total, group.size(), hasError, start));
         }
 

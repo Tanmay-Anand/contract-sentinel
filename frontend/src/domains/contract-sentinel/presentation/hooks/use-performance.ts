@@ -5,7 +5,7 @@ export function usePerformanceRegistry(params: { serviceId?: string; method?: st
   return useQuery({
     queryKey: ["performance-registry", params],
     queryFn: () => sentinelService.performance.registry(params),
-    refetchInterval: 30_000,
+    refetchInterval: 300_000,
   })
 }
 

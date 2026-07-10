@@ -5,7 +5,7 @@ export function useTraces(params: { serviceName?: string; minDurationMs?: number
   return useQuery({
     queryKey: ["traces", params],
     queryFn: () => sentinelService.traces.list(params),
-    refetchInterval: 10_000,
+    refetchInterval: 300_000,
   })
 }
 

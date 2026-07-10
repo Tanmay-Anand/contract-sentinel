@@ -1,7 +1,7 @@
 package io.contractsentinel.graph;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import io.contractsentinel.registry.ServiceRegistry;
 import io.contractsentinel.stats.OutboundCallCounter;
 import lombok.RequiredArgsConstructor;
@@ -76,7 +76,7 @@ public class OutboundCallScannerService {
                 if (!newJson.equals(dep.getEndpointCallsJson())) {
                     dep.setEndpointCallsJson(newJson);
                     dependencyRepository.save(dep);
-                    log.info("Updated endpoint calls for {} -> {} ({})",
+                    log.info("Updated endpoint calls for {} → {} ({})",
                             source.getName(), dep.getTargetService().getName(), prop);
                 }
             }

@@ -1,8 +1,8 @@
 package io.contractsentinel.sampler;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import io.contractsentinel.config.RequestContext;
 import io.contractsentinel.exception.SentinelException;
 import io.contractsentinel.registry.ServiceRegistry;
@@ -278,9 +278,7 @@ public class ResponseSamplerServiceImpl implements ResponseSamplerService {
         if (node == null) return;
 
         if (node.isObject()) {
-            Iterator<Map.Entry<String, JsonNode>> it = node.fields();
-            while (it.hasNext()) {
-                Map.Entry<String, JsonNode> entry = it.next();
+            for (Map.Entry<String, JsonNode> entry : node.properties()) {
                 String fieldPath = prefix.isEmpty() ? entry.getKey() : prefix + "." + entry.getKey();
                 fields.add(fieldPath);
                 extractFields(entry.getValue(), fieldPath, fields, depth + 1);
@@ -352,7 +350,7 @@ public class ResponseSamplerServiceImpl implements ResponseSamplerService {
     private String toJson(List<String> list) {
         try {
             return objectMapper.writeValueAsString(list);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             return "[]";
         }
     }

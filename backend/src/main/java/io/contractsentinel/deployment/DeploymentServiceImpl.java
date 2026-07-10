@@ -4,6 +4,7 @@ import io.contractsentinel.config.RequestContext;
 import io.contractsentinel.exception.SentinelException;
 import io.contractsentinel.registry.ServiceRegistry;
 import io.contractsentinel.registry.ServiceRegistryRepository;
+import io.contractsentinel.ws.WebSocketEventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -23,6 +24,7 @@ public class DeploymentServiceImpl implements DeploymentService {
 
     private final DeploymentRepository deploymentRepository;
     private final ServiceRegistryRepository serviceRegistryRepository;
+    private final WebSocketEventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -53,9 +55,10 @@ public class DeploymentServiceImpl implements DeploymentService {
                     .gitCommit(gitCommit)
                     .gitBranch(gitBranch)
                     .build();
-            deploymentRepository.save(event);
+            DeploymentEvent saved = deploymentRepository.save(event);
             log.info("Recorded new deployment event for service {} (commit={}, version={})",
                     service.getName(), gitCommit, buildVersion);
+            eventPublisher.publish("deployment.detected", DeploymentEventDto.from(saved));
         }
     }
 

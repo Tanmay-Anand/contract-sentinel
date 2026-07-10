@@ -1,8 +1,10 @@
 import { useState, useMemo } from "react"
 import { AlertCircle } from "lucide-react"
+import { useQueryClient } from "@tanstack/react-query"
 import { useTraces, useTrace } from "../hooks/use-traces"
 import { useServices } from "../hooks/use-services"
 import { usePerformanceRegistry } from "../hooks/use-performance"
+import { useEventSubscription } from "../hooks/use-event-subscription"
 import { SlideOver } from "../components/slide-over"
 import { TraceWaterfall } from "../components/trace-waterfall"
 import { MethodBadge } from "../components/method-badge"
@@ -40,10 +42,13 @@ const RATING_STYLE: Record<LatencyRating, { bg: string; color: string; label: st
 }
 
 export default function TracesPage() {
+  const queryClient = useQueryClient()
   const [serviceName, setServiceName] = useState("")
   const [minDurationMs, setMinDurationMs] = useState<number | "">("")
   const [sinceMinutes, setSinceMinutes] = useState(60)
   const [selected, setSelected] = useState<string | null>(null)
+
+  useEventSubscription("trace.received", () => void queryClient.invalidateQueries({ queryKey: ["traces"] }))
 
   const { data: services } = useServices()
   const { data: traces, isLoading } = useTraces({

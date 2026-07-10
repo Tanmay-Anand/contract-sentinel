@@ -1,9 +1,10 @@
 package io.contractsentinel.drift;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import io.contractsentinel.alert.AlertService;
 import io.contractsentinel.registry.ServiceRegistry;
 import io.contractsentinel.snapshot.SpecSnapshot;
+import io.contractsentinel.ws.WebSocketEventPublisher;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.Operation;
 import io.swagger.v3.oas.models.media.Schema;
@@ -23,6 +24,7 @@ public class DriftDetectionServiceImpl implements DriftDetectionService {
 
     private final DriftEventRepository driftEventRepository;
     private final AlertService alertService;
+    private final WebSocketEventPublisher eventPublisher;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
@@ -52,6 +54,7 @@ public class DriftDetectionServiceImpl implements DriftDetectionService {
             driftEventRepository.saveAll(newEvents);
             log.info("Detected {} new drift event(s) for {} ({} duplicates suppressed)",
                     newEvents.size(), service.getName(), events.size() - newEvents.size());
+            newEvents.forEach(e -> eventPublisher.publish("drift.detected", DriftEventDto.from(e)));
             newEvents.stream()
                     .filter(e -> e.getSeverity() == DriftEvent.Severity.BREAKING)
                     .forEach(e -> alertService.evaluateBreaking(

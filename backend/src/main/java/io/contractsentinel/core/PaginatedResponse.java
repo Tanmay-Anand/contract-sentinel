@@ -9,7 +9,7 @@ import java.util.List;
 public class PaginatedResponse<T> {
 
     private final List<T> content;
-    private final int pageNumber;     // 1-based
+    private final int pageNumber;     // 1-based, matches post-sales convention
     private final int pageSize;
     private final long totalElements;
     private final int totalPages;

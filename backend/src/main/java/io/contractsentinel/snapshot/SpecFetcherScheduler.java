@@ -1,7 +1,7 @@
 package io.contractsentinel.snapshot;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import io.contractsentinel.alert.AlertService;
 import io.contractsentinel.deployment.DeploymentService;
 import io.contractsentinel.drift.DriftDetectionService;
@@ -12,6 +12,7 @@ import io.contractsentinel.registry.ServiceRegistry;
 import io.contractsentinel.registry.ServiceRegistryRepository;
 import io.contractsentinel.stats.OutboundCallCounter;
 import io.contractsentinel.trace.TraceService;
+import io.contractsentinel.ws.WebSocketEventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -45,6 +46,13 @@ public class SpecFetcherScheduler {
     private final EndpointPerformanceService endpointPerformanceService;
     private final TraceService traceService;
     private final OutboundCallCounter callCounter;
+    private final WebSocketEventPublisher eventPublisher;
+
+    @Value("${sentinel.performance.retention-days:30}")
+    private int performanceRetentionDays;
+
+    @Value("${sentinel.traces.retention-hours:24}")
+    private int traceRetentionHours;
 
     @Value("${sentinel.performance.retention-days:30}")
     private int performanceRetentionDays;
@@ -98,6 +106,12 @@ public class SpecFetcherScheduler {
         Optional<SpecSnapshot> baseline = snapshotRepository
                 .findTopByServiceAndFetchStatusOrderByFetchedAtAsc(service, SpecSnapshot.FetchStatus.FETCHED);
 
+        // Capture prior reachability for health-change detection.
+        SpecSnapshot.FetchStatus priorStatus = snapshotRepository
+                .findTopByServiceOrderByFetchedAtDesc(service)
+                .map(SpecSnapshot::getFetchStatus)
+                .orElse(null);
+
         try {
             long startMs = System.currentTimeMillis();
             String specJson = restClient.get()
@@ -109,6 +123,12 @@ public class SpecFetcherScheduler {
             if (specJson == null || specJson.isBlank()) {
                 saveUnreachable(service);
                 alertService.evaluateUnreachable(service.getId(), service.getName());
+                if (priorStatus == SpecSnapshot.FetchStatus.FETCHED) {
+                    eventPublisher.publish("health.changed", Map.of(
+                            "serviceId", service.getId().toString(),
+                            "serviceName", service.getName(),
+                            "healthy", false));
+                }
                 return;
             }
 
@@ -121,6 +141,14 @@ public class SpecFetcherScheduler {
                 endpointPerformanceService.collectForService(service);
             } catch (Exception e) {
                 log.warn("Performance collection failed for {}: {}", service.getName(), e.getMessage());
+            }
+
+            // Service recovered from unreachable — notify frontend immediately.
+            if (priorStatus == SpecSnapshot.FetchStatus.UNREACHABLE) {
+                eventPublisher.publish("health.changed", Map.of(
+                        "serviceId", service.getId().toString(),
+                        "serviceName", service.getName(),
+                        "healthy", true));
             }
 
             String hash = sha256(specJson);
@@ -147,6 +175,12 @@ public class SpecFetcherScheduler {
             log.warn("Failed to fetch spec from {}: {}", specUrl, e.getMessage());
             saveUnreachable(service);
             alertService.evaluateUnreachable(service.getId(), service.getName());
+            if (priorStatus == SpecSnapshot.FetchStatus.FETCHED) {
+                eventPublisher.publish("health.changed", Map.of(
+                        "serviceId", service.getId().toString(),
+                        "serviceName", service.getName(),
+                        "healthy", false));
+            }
         }
     }
 
