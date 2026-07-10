@@ -115,3 +115,4 @@ public class HttpExceptionHandler {
                 .body(new SentinelException("An unexpected error occurred. Please try again later.", HttpStatus.INTERNAL_SERVER_ERROR, rid));
     }
 }
+

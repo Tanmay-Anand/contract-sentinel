@@ -170,7 +170,7 @@ export default function OverviewPage() {
 
       {isLoading && (
         <div className="text-center py-16" style={{ color: "var(--color-text-secondary)" }}>
-          Loading services…
+          Loading servicesâ€¦
         </div>
       )}
 

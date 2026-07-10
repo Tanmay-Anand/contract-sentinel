@@ -2,7 +2,7 @@ spring:
   application:
     name: contract-sentinel
   datasource:
-    url: jdbc:postgresql://localhost:5432/contract_sentinel
+    url: ${SENTINEL_DB_URL:jdbc:postgresql://localhost:5432/contract_sentinel}
     username: postgres
     password: password
   jpa:
@@ -52,6 +52,27 @@ sentinel:
     url: ""
   db:
     schema: public
+  performance:
+    retention-days: 30          # how long to keep endpoint performance snapshots
+  traces:
+    retention-hours: 24         # how long to keep collected trace spans (100% sampling grows fast)
+  frontend:
+    # Absolute path to a frontend source tree the schema-risk agent greps for column references.
+    # Leave blank to disable the frontend_grep agent tool.
+    source-dir: ${SENTINEL_FRONTEND_SOURCE_DIR:}
+  llm:
+    provider: ${SENTINEL_LLM_PROVIDER:ollama}   # ollama | claude
+    max-iterations: 10
+    request-timeout-seconds: 120
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      model: ${OLLAMA_MODEL:qwen2.5:14b}
+      native-tools: true
+    claude:
+      base-url: https://api.anthropic.com
+      model: ${SENTINEL_LLM_CLAUDE_MODEL:claude-sonnet-4-5}
+      max-tokens: 2048
+      api-key: ${SENTINEL_LLM_CLAUDE_API_KEY:}   # never commit a real key
 
 logging:
   level:

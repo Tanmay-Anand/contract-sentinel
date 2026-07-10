@@ -54,6 +54,12 @@ public class SpecFetcherScheduler {
     @Value("${sentinel.traces.retention-hours:24}")
     private int traceRetentionHours;
 
+    @Value("${sentinel.performance.retention-days:30}")
+    private int performanceRetentionDays;
+
+    @Value("${sentinel.traces.retention-hours:24}")
+    private int traceRetentionHours;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private final RestClient restClient = RestClient.builder()
@@ -95,7 +101,7 @@ public class SpecFetcherScheduler {
         Optional<SpecSnapshot> latest = snapshotRepository
                 .findTopByServiceAndFetchStatusOrderByFetchedAtDesc(service, SpecSnapshot.FetchStatus.FETCHED);
 
-        // Oldest snapshot: the immutable baseline — drift is always measured against this.
+        // Oldest snapshot: the immutable baseline â€” drift is always measured against this.
         // Using the oldest (not the latest) means accumulated changes across restarts are never lost.
         Optional<SpecSnapshot> baseline = snapshotRepository
                 .findTopByServiceAndFetchStatusOrderByFetchedAtAsc(service, SpecSnapshot.FetchStatus.FETCHED);
@@ -161,7 +167,7 @@ public class SpecFetcherScheduler {
                     .fetchDurationMs(durationMs)
                     .build());
 
-            // Compare baseline (oldest ever) vs new snapshot — not just the consecutive previous.
+            // Compare baseline (oldest ever) vs new snapshot â€” not just the consecutive previous.
             // Deduplication in DriftDetectionService prevents duplicate events across polls.
             baseline.ifPresent(base -> driftDetectionService.detectAndPersist(service, base, snapshot));
 
