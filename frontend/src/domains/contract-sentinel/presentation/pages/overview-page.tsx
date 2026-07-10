@@ -1,69 +1,30 @@
 import { useMemo } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { RefreshCw, ShieldCheck, CheckCircle2, WifiOff, AlertTriangle, TrendingUp } from "lucide-react"
+import { Link } from "@tanstack/react-router"
+import { useEventSubscription } from "../hooks/use-event-subscription"
 import {
-  PieChart, Pie, Cell, Legend, Label, Tooltip, ResponsiveContainer,
-} from "recharts"
-import type { DriftEventDto, ServiceDto } from "../../infrastructure/api/types"
-import { ServiceCard } from "../components/service-card"
-import { useServices, usePollAll, SERVICE_KEYS } from "../hooks/use-services"
+  RefreshCw, ShieldCheck, CheckCircle2, WifiOff, AlertTriangle,
+  TrendingUp, Activity, Waypoints, GitCompare,
+} from "lucide-react"
+import { ResponsiveContainer, AreaChart, Area, Tooltip } from "recharts"
+import type { DriftEventDto, SamplingResultDto, ServiceDto, TraceSummaryDto } from "../../infrastructure/api/types"
+import { MethodBadge } from "../components/method-badge"
+import { useServices, usePollAll } from "../hooks/use-services"
+import { useLatency } from "../hooks/use-latency"
+import { useTraces } from "../hooks/use-traces"
+import { usePerformanceRegistry } from "../hooks/use-performance"
 import { sentinelService } from "../../infrastructure/api/sentinel.service"
 import { DRIFT_KEYS } from "../hooks/use-drift"
 
-const STATUS_COLORS: Record<ServiceDto["status"], string> = {
-  HEALTHY:      "#16a34a",
-  DRIFTED:      "#f59e0b",
-  UNREACHABLE:  "#ef4444",
-  PARSE_FAILED: "#8b5cf6",
-  UNKNOWN:      "#94a3b8",
-}
-
-const STATUS_LABELS: Record<ServiceDto["status"], string> = {
-  HEALTHY:      "Healthy",
-  DRIFTED:      "Drifted",
-  UNREACHABLE:  "Unreachable",
-  PARSE_FAILED: "Parse Failed",
-  UNKNOWN:      "Unknown",
-}
-
-function DonutCenter({ viewBox, total }: { viewBox?: { cx?: number; cy?: number }; total: number }) {
-  const cx = viewBox?.cx ?? 0
-  const cy = viewBox?.cy ?? 0
-  return (
-    <g>
-      <text x={cx} y={cy - 8} textAnchor="middle" dominantBaseline="middle"
-        fill="var(--color-text-primary)" fontSize={28} fontWeight={700} fontFamily="DM Sans, sans-serif">
-        {total}
-      </text>
-      <text x={cx} y={cy + 14} textAnchor="middle" dominantBaseline="middle"
-        fill="var(--color-text-secondary)" fontSize={11} fontFamily="DM Sans, sans-serif">
-        Services
-      </text>
-    </g>
-  )
-}
-
 // ── Health score computation ──────────────────────────────────────────────────
-// Uses only already-fetched data — no extra API calls.
-// Factors:
-//   Breaking changes:   -20 per unacknowledged breaking change, capped at -60
-//   Status penalty:     -30 for UNREACHABLE / PARSE_FAILED
-//   Safe drift:         -3 per unacknowledged safe change, capped at -15
 function computeHealthScore(service: ServiceDto, allEvents: DriftEventDto[]): number {
   let score = 100
-
-  // Breaking penalty (service DTO already aggregates this count)
   score -= Math.min(service.breakingDriftCount * 20, 60)
-
-  // Reachability / parse penalty
   if (service.status === "UNREACHABLE" || service.status === "PARSE_FAILED") score -= 30
-
-  // Unacknowledged safe changes for this service
   const safeCount = allEvents.filter(
     e => e.serviceId === service.id && !e.acknowledged && e.severity === "SAFE"
   ).length
   score -= Math.min(safeCount * 3, 15)
-
   return Math.max(0, Math.min(100, score))
 }
 
@@ -73,38 +34,65 @@ function scoreColor(score: number): string {
   return "#ef4444"
 }
 
-// ── Activity timeline helpers ─────────────────────────────────────────────────
-function relativeTime(iso: string): string {
+// ── Trace utilities (mirrored from traces-page) ───────────────────────────────
+function parseRootName(rootName: string | null): { method: string; path: string } | null {
+  if (!rootName) return null
+  const match = rootName.match(/^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+(.+)$/i)
+  if (match) return { method: match[1].toUpperCase(), path: match[2] }
+  return null
+}
+
+type LatencyRating = "fast" | "normal" | "slow" | "unknown"
+
+function latencyRating(durationMs: number, p50Ms: number | null): LatencyRating {
+  if (p50Ms == null || p50Ms === 0) return "unknown"
+  if (durationMs < p50Ms) return "fast"
+  if (durationMs < p50Ms * 2.5) return "normal"
+  return "slow"
+}
+
+const RATING_STYLE: Record<LatencyRating, { bg: string; color: string; label: string }> = {
+  fast:    { bg: "#f0fdf4", color: "#16a34a", label: "Fast" },
+  normal:  { bg: "#fffbeb", color: "#d97706", label: "Normal" },
+  slow:    { bg: "#fef2f2", color: "#dc2626", label: "Slow" },
+  unknown: { bg: "var(--color-background)", color: "var(--color-text-secondary)", label: "—" },
+}
+
+const NOISE_PREFIXES = ["/v3/api-docs", "/swagger-ui", "/swagger-resources", "/webjars", "/scalar", "/actuator"]
+
+function isUserTrace(t: TraceSummaryDto): boolean {
+  const parsed = parseRootName(t.rootName)
+  if (!parsed) return false
+  return !NOISE_PREFIXES.some(p => parsed.path.startsWith(p))
+}
+
+// ── Time formatting ───────────────────────────────────────────────────────────
+function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime()
-  const h    = Math.floor(diff / 3_600_000)
-  const m    = Math.floor(diff / 60_000)
-  if (h >= 48) return `${Math.floor(h / 24)}d ago`
-  if (h >= 1)  return `${h}h ago`
-  if (m >= 1)  return `${m}m ago`
-  return "just now"
+  const m = Math.floor(diff / 60_000)
+  if (m < 1) return "just now"
+  if (m < 60) return `${m}m ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ago`
+  return `${Math.floor(h / 24)}d ago`
 }
 
-const CHANGE_LABELS: Record<string, string> = {
-  PATH_REMOVED:                  "removed path",
-  RESPONSE_FIELD_REMOVED:        "removed field",
-  RESPONSE_FIELD_TYPE_CHANGED:   "changed field type",
-  REQUEST_REQUIRED_FIELD_ADDED:  "added required field",
-  PATH_ADDED:                    "added path",
-  RESPONSE_FIELD_ADDED:          "added field",
-  REQUEST_OPTIONAL_FIELD_ADDED:  "added optional field",
-}
-
+// ── Page ─────────────────────────────────────────────────────────────────────
 export default function OverviewPage() {
   const queryClient = useQueryClient()
-
   const { data: services, isLoading, isError } = useServices()
 
   const { data: allDrift } = useQuery({
     queryKey: DRIFT_KEYS.list({ size: 500 }),
     queryFn:  () => sentinelService.drift.list({ size: 500 }),
-    refetchInterval: 60_000,
+    refetchInterval: 300_000,
     enabled: !!services,
   })
+
+  // Live push invalidation — WebSocket events replace most polling.
+  useEventSubscription("drift.detected",      () => void queryClient.invalidateQueries({ queryKey: DRIFT_KEYS.all }))
+  useEventSubscription("health.changed",      () => void queryClient.invalidateQueries({ queryKey: ["services"] }))
+  useEventSubscription("deployment.detected", () => void queryClient.invalidateQueries({ queryKey: ["overview-deployments"] }))
 
   const { mutate: pollAll, isPending: isPolling } = usePollAll()
 
@@ -119,33 +107,14 @@ export default function OverviewPage() {
   const unreachable = services?.filter(s => s.status === "UNREACHABLE" || s.status === "PARSE_FAILED").length ?? 0
   const breaking    = services?.reduce((acc, s) => acc + s.breakingDriftCount, 0) ?? 0
 
-  const healthChartData = useMemo(() => {
-    if (!services || services.length === 0) return []
-    const counts: Partial<Record<ServiceDto["status"], number>> = {}
-    services.forEach(s => { counts[s.status] = (counts[s.status] ?? 0) + 1 })
-    return Object.entries(counts).map(([status, count]) => ({
-      name:  STATUS_LABELS[status as ServiceDto["status"]] ?? status,
-      value: count!,
-      color: STATUS_COLORS[status as ServiceDto["status"]] ?? "#94a3b8",
-    }))
-  }, [services])
+  const allEvents = allDrift?.content ?? []
 
-  const allEvents   = allDrift?.content ?? []
-
-  // Option A: health scores sorted worst-first
   const healthScores = useMemo(() => {
     if (!services) return []
     return services
       .map(s => ({ service: s, score: computeHealthScore(s, allEvents) }))
       .sort((a, b) => a.score - b.score)
   }, [services, allEvents])
-
-  // Option B: last 8 events, newest first
-  const recentActivity = useMemo(() => {
-    return [...allEvents]
-      .sort((a, b) => new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime())
-      .slice(0, 8)
-  }, [allEvents])
 
   return (
     <div className="p-6">
@@ -206,191 +175,470 @@ export default function OverviewPage() {
       )}
 
       {services && services.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-
-          {/* Health distribution donut */}
-          <div className="rounded-xl border p-5 flex flex-col"
-            style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}>
-            <div className="mb-1">
-              <h2 className="text-sm font-semibold" style={{ color: "var(--color-text-primary)" }}>Health Distribution</h2>
-              <p className="text-xs mt-0.5" style={{ color: "var(--color-text-secondary)" }}>
-                Current runtime status of all monitored services.
-              </p>
-            </div>
-            <div className="flex-1 flex items-center justify-center">
-              <ResponsiveContainer width="100%" height={200}>
-                <PieChart>
-                  <Pie dataKey="value" nameKey="name" cx="50%" cy="50%"
-                    innerRadius={60} outerRadius={82} paddingAngle={3} strokeWidth={0}
-                    data={healthChartData}>
-                    {healthChartData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-                    <Label
-                      content={(props) => (
-                        <DonutCenter viewBox={props.viewBox as { cx?: number; cy?: number }} total={total} />
-                      )}
-                      position="center"
-                    />
-                  </Pie>
-                  <Tooltip
-                    formatter={(value: number, name: string) => [`${value} service${value !== 1 ? "s" : ""}`, name]}
-                    contentStyle={{ fontSize: 12, border: "1px solid var(--color-border)", borderRadius: 8, boxShadow: "0 4px 12px rgba(0,0,0,.08)" }}
-                  />
-                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
+        <>
+          {/* Row 1 — Contract Health + Recent Traces */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <ContractHealthCard healthScores={healthScores} />
+            <RecentTracesCard />
           </div>
 
-          {/* Option A — Contract Health Score */}
-          <div className="rounded-xl border p-5 flex flex-col"
-            style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}>
-            <div className="flex items-start justify-between mb-4">
-              <div>
-                <h2 className="text-sm font-semibold" style={{ color: "var(--color-text-primary)" }}>
-                  Contract Health
-                </h2>
-                <p className="text-xs mt-0.5" style={{ color: "var(--color-text-secondary)" }}>
-                  Score 0–100 per service. Worst first.
+          {/* Row 2 — Session Summary + Service Latency */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <SessionSummaryCard services={services} allEvents={allEvents} />
+            <ServiceLatencyCard services={services} />
+          </div>
+
+          {/* Row 3 — Recent Contract Changes (full width) */}
+          <RecentContractChangesCard allEvents={allEvents} />
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── Contract Health Card ──────────────────────────────────────────────────────
+function ContractHealthCard({
+  healthScores,
+}: {
+  healthScores: { service: ServiceDto; score: number }[]
+}) {
+  return (
+    <div className="rounded-xl border p-5 flex flex-col"
+      style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}>
+      <div className="flex items-start justify-between mb-4">
+        <div>
+          <h2 className="text-sm font-semibold" style={{ color: "var(--color-text-primary)" }}>
+            Contract Health
+          </h2>
+          <p className="text-xs mt-0.5" style={{ color: "var(--color-text-secondary)" }}>
+            Score 0–100 per service. Worst first.
+          </p>
+        </div>
+        <TrendingUp className="w-4 h-4 shrink-0 mt-0.5" style={{ color: "var(--color-text-secondary)" }} />
+      </div>
+
+      <div className="space-y-3.5 flex-1">
+        {healthScores.map(({ service, score }) => {
+          const color = scoreColor(score)
+          return (
+            <div key={service.id}>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-medium truncate"
+                  style={{ color: "var(--color-text-primary)", maxWidth: "75%" }}>
+                  {service.name}
+                </span>
+                <span className="text-xs font-bold tabular-nums" style={{ color }}>
+                  {score}
+                </span>
+              </div>
+              <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--color-border)" }}>
+                <div className="h-full rounded-full"
+                  style={{
+                    width: `${score}%`,
+                    background: `linear-gradient(90deg, ${color}99, ${color})`,
+                    transition: "width 0.6s ease",
+                  }}
+                />
+              </div>
+              {service.breakingDriftCount > 0 && (
+                <p className="text-xs mt-0.5" style={{ color: "#ef4444" }}>
+                  {service.breakingDriftCount} unacknowledged breaking change{service.breakingDriftCount > 1 ? "s" : ""}
                 </p>
+              )}
+              {service.status === "UNREACHABLE" && (
+                <p className="text-xs mt-0.5" style={{ color: "#ef4444" }}>Service unreachable</p>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="flex items-center justify-between mt-4 pt-3 border-t"
+        style={{ borderColor: "var(--color-border)" }}>
+        <div className="flex items-center gap-4 text-xs" style={{ color: "var(--color-text-secondary)" }}>
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-2 h-2 rounded-full" style={{ background: "#16a34a" }} /> 80–100 clean
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-2 h-2 rounded-full" style={{ background: "#f59e0b" }} /> 60–79 drifted
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-2 h-2 rounded-full" style={{ background: "#ef4444" }} /> &lt;60 critical
+          </span>
+        </div>
+        <Link to="/catalogue" className="text-xs font-medium hover:opacity-70 transition-opacity"
+          style={{ color: "var(--color-primary)" }}>
+          View all →
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+// ── Recent Traces Card ────────────────────────────────────────────────────────
+function RecentTracesCard() {
+  const queryClient = useQueryClient()
+  const { data: traces } = useTraces({ sinceMinutes: 60 })
+  const { data: perfRows } = usePerformanceRegistry()
+
+  useEventSubscription("trace.received", () => void queryClient.invalidateQueries({ queryKey: ["traces"] }))
+
+  const p50Map = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const r of perfRows ?? []) {
+      if (r.p50Ms != null) {
+        map.set(`${r.serviceName}:${r.httpMethod.toUpperCase()}:${r.path}`, r.p50Ms)
+      }
+    }
+    return map
+  }, [perfRows])
+
+  const recent = useMemo(() => {
+    return (traces ?? []).filter(isUserTrace).slice(0, 5)
+  }, [traces])
+
+  return (
+    <div className="rounded-xl border p-5 flex flex-col"
+      style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}>
+      <div className="flex items-start justify-between mb-4">
+        <div>
+          <h2 className="text-sm font-semibold" style={{ color: "var(--color-text-primary)" }}>
+            Recent Traces
+          </h2>
+          <p className="text-xs mt-0.5" style={{ color: "var(--color-text-secondary)" }}>
+            Live real user traffic · last hour
+          </p>
+        </div>
+        <Waypoints className="w-4 h-4 shrink-0 mt-0.5" style={{ color: "var(--color-text-secondary)" }} />
+      </div>
+
+      {recent.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center text-xs"
+          style={{ color: "var(--color-text-secondary)" }}>
+          No user traffic recorded yet
+        </div>
+      ) : (
+        <div className="flex-1 space-y-1.5">
+          {recent.map(t => {
+            const parsed = parseRootName(t.rootName)
+            const durationMs = t.totalDurationMicros / 1000
+            const p50Key = parsed ? `${t.entryService}:${parsed.method}:${parsed.path}` : null
+            const p50Ms = p50Key ? (p50Map.get(p50Key) ?? null) : null
+            const rating = latencyRating(durationMs, p50Ms)
+            const rs = RATING_STYLE[rating]
+
+            return (
+              <div key={t.traceId}
+                className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 transition-colors"
+                style={{ background: "var(--color-surface-elevated, var(--color-background))" }}>
+                {parsed
+                  ? <MethodBadge method={parsed.method} />
+                  : <span className="text-xs font-mono" style={{ color: "var(--color-text-secondary)" }}>—</span>}
+                <span className="text-xs font-mono truncate flex-1" style={{ color: "var(--color-text-primary)" }}
+                  title={parsed?.path}>
+                  {parsed?.path ?? t.rootName}
+                </span>
+                <span className="text-xs shrink-0" style={{ color: "var(--color-text-secondary)" }}>
+                  {t.entryService.replace(/^crm-/, "")}
+                </span>
+                <span className="text-xs tabular-nums shrink-0 font-mono"
+                  style={{ color: "var(--color-text-primary)" }}>
+                  {durationMs < 1 ? `${durationMs.toFixed(2)}ms` : `${Math.round(durationMs)}ms`}
+                </span>
+                <span className="text-xs font-medium px-1.5 py-0.5 rounded shrink-0"
+                  style={{ background: rs.bg, color: rs.color }}>
+                  {rs.label}
+                </span>
               </div>
-              <TrendingUp className="w-4 h-4 shrink-0 mt-0.5" style={{ color: "var(--color-text-secondary)" }} />
-            </div>
-            <div className="space-y-3.5 flex-1">
-              {healthScores.map(({ service, score }) => {
-                const color = scoreColor(score)
-                return (
-                  <div key={service.id}>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-xs font-medium truncate" style={{ color: "var(--color-text-primary)", maxWidth: "75%" }}>
-                        {service.name}
-                      </span>
-                      <span className="text-xs font-bold tabular-nums" style={{ color }}>
-                        {score}
-                      </span>
-                    </div>
-                    <div className="h-1.5 rounded-full overflow-hidden"
-                      style={{ background: "var(--color-border)" }}>
-                      <div
-                        className="h-full rounded-full"
-                        style={{
-                          width: `${score}%`,
-                          background: `linear-gradient(90deg, ${color}99, ${color})`,
-                          transition: "width 0.6s ease",
-                        }}
-                      />
-                    </div>
-                    {service.breakingDriftCount > 0 && (
-                      <p className="text-xs mt-0.5" style={{ color: "#ef4444" }}>
-                        {service.breakingDriftCount} unacknowledged breaking change{service.breakingDriftCount > 1 ? "s" : ""}
-                      </p>
-                    )}
-                    {service.status === "UNREACHABLE" && (
-                      <p className="text-xs mt-0.5" style={{ color: "#ef4444" }}>Service unreachable</p>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-            <div className="flex items-center gap-4 mt-4 pt-3 border-t text-xs"
-              style={{ borderColor: "var(--color-border)", color: "var(--color-text-secondary)" }}>
-              <span className="flex items-center gap-1">
-                <span className="inline-block w-2 h-2 rounded-full" style={{ background: "#16a34a" }} /> 80–100 clean
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="inline-block w-2 h-2 rounded-full" style={{ background: "#f59e0b" }} /> 60–79 drifted
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="inline-block w-2 h-2 rounded-full" style={{ background: "#ef4444" }} /> &lt;60 critical
-              </span>
-            </div>
-          </div>
-
-          {/* Option B — Last Activity Timeline */}
-          <div className="rounded-xl border p-5 flex flex-col"
-            style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}>
-            <div className="mb-4">
-              <h2 className="text-sm font-semibold" style={{ color: "var(--color-text-primary)" }}>
-                Recent Activity
-              </h2>
-              <p className="text-xs mt-0.5" style={{ color: "var(--color-text-secondary)" }}>
-                Latest contract changes across all services.
-              </p>
-            </div>
-
-            {recentActivity.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center"
-                style={{ color: "var(--color-text-secondary)" }}>
-                <div className="text-2xl">🔍</div>
-                <p className="text-xs">No contract changes yet — poll services to start detecting drift.</p>
-              </div>
-            ) : (
-              <div className="flex-1 space-y-0 overflow-hidden">
-                {recentActivity.map((event, i) => {
-                  const isBreaking = event.severity === "BREAKING"
-                  const isLast = i === recentActivity.length - 1
-                  return (
-                    <div key={event.id}
-                      className="flex items-start gap-2.5 py-2"
-                      style={{ borderBottom: isLast ? "none" : "1px solid var(--color-border)" }}>
-
-                      {/* Severity dot with connecting line */}
-                      <div className="flex flex-col items-center shrink-0" style={{ marginTop: 2 }}>
-                        <span
-                          className="w-2 h-2 rounded-full shrink-0"
-                          style={{ background: isBreaking ? "#ef4444" : "#16a34a" }}
-                        />
-                      </div>
-
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-baseline gap-1.5 flex-wrap">
-                          <span className="text-xs font-semibold" style={{ color: "var(--color-text-primary)" }}>
-                            {event.serviceName}
-                          </span>
-                          <span className="text-xs" style={{ color: "var(--color-text-secondary)" }}>
-                            {CHANGE_LABELS[event.changeType] ?? event.changeType.toLowerCase().replace(/_/g, " ")}
-                          </span>
-                        </div>
-                        {event.apiPath && (
-                          <div className="flex items-center gap-1 mt-0.5">
-                            {event.httpMethod && (
-                              <span className="text-xs font-bold font-mono"
-                                style={{ color: isBreaking ? "#ef4444" : "#16a34a" }}>
-                                {event.httpMethod}
-                              </span>
-                            )}
-                            <span className="text-xs font-mono truncate"
-                              style={{ color: "var(--color-text-secondary)" }}>
-                              {event.apiPath}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="flex flex-col items-end shrink-0 gap-1">
-                        <span className="text-xs tabular-nums" style={{ color: "var(--color-text-secondary)" }}>
-                          {relativeTime(event.detectedAt)}
-                        </span>
-                        <span className="text-xs px-1.5 py-0.5 rounded font-medium"
-                          style={{
-                            background: isBreaking ? "#fef2f2" : "#f0fdf4",
-                            color: isBreaking ? "#dc2626" : "#16a34a",
-                          }}>
-                          {isBreaking ? "breaking" : "safe"}
-                        </span>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
+            )
+          })}
         </div>
       )}
 
-      {/* Service cards */}
-      {services && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {services.map(s => <ServiceCard key={s.id} service={s} />)}
+      <div className="mt-3 pt-3 border-t flex justify-end"
+        style={{ borderColor: "var(--color-border)" }}>
+        <Link to="/traces" className="text-xs font-medium hover:opacity-70 transition-opacity"
+          style={{ color: "var(--color-primary)" }}>
+          Traces →
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+// ── Service Latency Card ──────────────────────────────────────────────────────
+function ServiceLatencyCard({ services }: { services: ServiceDto[] }) {
+  return (
+    <div className="rounded-xl border p-5 flex flex-col"
+      style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}>
+      <div className="flex items-start justify-between mb-4">
+        <div>
+          <h2 className="text-sm font-semibold" style={{ color: "var(--color-text-primary)" }}>
+            Service Latency
+          </h2>
+          <p className="text-xs mt-0.5" style={{ color: "var(--color-text-secondary)" }}>
+            P95 response time per service.
+          </p>
+        </div>
+        <Activity className="w-4 h-4 shrink-0 mt-0.5" style={{ color: "var(--color-text-secondary)" }} />
+      </div>
+      <div className="flex flex-col gap-3 flex-1 overflow-y-auto">
+        {services.map(s => <ServiceLatencyRow key={s.id} service={s} />)}
+      </div>
+    </div>
+  )
+}
+
+// ── Per-service latency row ───────────────────────────────────────────────────
+function ServiceLatencyRow({ service }: { service: ServiceDto }) {
+  const unreachable = service.status === "UNREACHABLE" || service.status === "PARSE_FAILED"
+  const { data: metrics } = useLatency(service.id, 30)
+
+  const series = useMemo(() => {
+    return [...(metrics ?? [])]
+      .map(m => ({
+        v: m.p95Ms ?? m.p50Ms ?? m.specFetchMs ?? null,
+        t: m.recordedAt,
+      }))
+      .filter((p): p is { v: number; t: string } => p.v != null)
+      .reverse()
+  }, [metrics])
+
+  const latest = series.length ? series[series.length - 1].v : null
+  const lineColor = unreachable ? "#ef4444" : "var(--color-primary)"
+  const gradientId = `lat-grad-${service.id}`
+
+  return (
+    <div className="rounded-lg border p-3"
+      style={{
+        background: "var(--color-surface-elevated, var(--color-surface))",
+        borderColor: "var(--color-border)",
+        opacity: unreachable ? 0.6 : 1,
+      }}>
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-xs font-semibold truncate"
+          style={{ color: "var(--color-text-primary)", maxWidth: "68%" }}>
+          {service.name}
+        </span>
+        <span className="text-xs font-semibold tabular-nums"
+          style={{ color: unreachable ? "#ef4444" : "var(--color-primary)" }}>
+          {unreachable ? "unreachable" : latest != null ? `${Math.round(latest)} ms` : "—"}
+        </span>
+      </div>
+
+      <div style={{ height: 38 }}>
+        {unreachable ? (
+          <div className="flex items-center" style={{ height: "100%" }}>
+            <div className="w-full" style={{ borderTop: "2px dashed #ef4444", opacity: 0.5 }} />
+          </div>
+        ) : series.length >= 2 ? (
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={series} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
+              <defs>
+                <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={lineColor} stopOpacity={0.22} />
+                  <stop offset="100%" stopColor={lineColor} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <Tooltip
+                content={({ active, payload }) => {
+                  if (!active || !payload?.length) return null
+                  const pt = payload[0].payload as { v: number; t: string }
+                  const time = new Date(pt.t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                  return (
+                    <div className="rounded-lg border px-2.5 py-1.5 text-xs shadow-lg"
+                      style={{ background: "var(--color-surface)", borderColor: "var(--color-border)", zIndex: 50 }}>
+                      <div className="font-semibold tabular-nums" style={{ color: "var(--color-text-primary)" }}>
+                        {Math.round(pt.v)} ms
+                      </div>
+                      <div className="mt-0.5" style={{ color: "var(--color-text-secondary)" }}>{time}</div>
+                    </div>
+                  )
+                }}
+                cursor={{ stroke: lineColor, strokeWidth: 1, strokeDasharray: "3 3" }}
+              />
+              <Area type="monotone" dataKey="v" stroke={lineColor} strokeWidth={1.5}
+                fill={`url(#${gradientId})`} isAnimationActive={false} dot={false} activeDot={{ r: 3 }} />
+            </AreaChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="text-xs h-full flex items-center" style={{ color: "var(--color-text-secondary)" }}>
+            No latency data yet
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Session Summary card ──────────────────────────────────────────────────────
+function SessionSummaryCard({ services, allEvents }: { services: ServiceDto[]; allEvents: DriftEventDto[] }) {
+  const breakingCount = allEvents.filter(e => e.severity === "BREAKING").length
+  const driftedCount  = new Set(
+    allEvents.filter(e => e.apiPath).map(e => `${e.httpMethod ?? ""} ${e.apiPath}`)
+  ).size
+
+  const { data: deploymentCount = 0 } = useQuery({
+    queryKey: ["overview-deployments", services.map(s => s.id).join(",")],
+    queryFn: async () => {
+      const pages = await Promise.all(
+        services.map(s => sentinelService.deployments.list(s.id, 0, 100).catch(() => ({ content: [] })))
+      )
+      return pages.reduce((sum, p) => sum + (p.content?.length ?? 0), 0)
+    },
+    enabled: services.length > 0,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  })
+
+  const { data: samplerEndpoints = [] } = useQuery({
+    queryKey: ["overview-sampler"],
+    queryFn: () => sentinelService.sampler.list(),
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  })
+
+  const sampledIds = samplerEndpoints.filter(e => e.lastSampledAt).map(e => e.id)
+
+  const { data: mismatchCount = 0 } = useQuery({
+    queryKey: ["overview-sampler-mismatches", sampledIds.join(",")],
+    queryFn: async () => {
+      const pages = await Promise.all(
+        sampledIds.map(id =>
+          sentinelService.sampler.results(id, 0).catch(() => ({ content: [] as SamplingResultDto[] }))
+        )
+      )
+      return pages.flatMap(p => p.content ?? []).filter(r => r.matchScore < 80).length
+    },
+    enabled: sampledIds.length > 0,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  })
+
+  const cells: { label: string; value: number; sub: string; to: string; alert?: boolean }[] = [
+    { label: "Breaking changes",     value: breakingCount,   sub: "unacknowledged",      to: "/drift",   alert: breakingCount > 0 },
+    { label: "Deployments detected", value: deploymentCount, sub: "across all services",  to: "/graph" },
+    { label: "Endpoints drifted",    value: driftedCount,    sub: "unique paths changed", to: "/drift" },
+    { label: "Sampler mismatches",   value: mismatchCount,   sub: "score < 80",           to: "/sampler", alert: mismatchCount > 0 },
+  ]
+
+  return (
+    <div className="rounded-xl border p-4"
+      style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}>
+      <div className="mb-3">
+        <h2 className="text-sm font-semibold" style={{ color: "var(--color-text-primary)" }}>Session Summary</h2>
+        <p className="text-xs mt-0.5" style={{ color: "var(--color-text-secondary)" }}>
+          What's happened since ContractSentinel started.
+        </p>
+      </div>
+      <div className="grid grid-cols-2 gap-2.5">
+        {cells.map(cell => (
+          <Link key={cell.label} to={cell.to}
+            className="rounded-lg border p-3 block transition-opacity hover:opacity-75"
+            style={{
+              borderColor: "var(--color-border)",
+              background: "var(--color-surface-elevated, var(--color-surface))",
+              textDecoration: "none",
+              borderLeftWidth: "3px",
+              borderLeftColor: cell.alert && cell.label === "Breaking changes"
+                ? "#ef4444"
+                : cell.alert ? "#f59e0b"
+                : "var(--color-border)",
+            }}>
+            <div className="text-2xl font-bold tabular-nums leading-none"
+              style={{ color: cell.alert && cell.label === "Breaking changes" ? "#ef4444" : cell.alert ? "#f59e0b" : "var(--color-text-primary)" }}>
+              {cell.value}
+            </div>
+            <div className="text-xs font-medium mt-1.5" style={{ color: "var(--color-text-primary)" }}>
+              {cell.label}
+            </div>
+            <div className="text-xs mt-0.5" style={{ color: "var(--color-text-secondary)" }}>
+              {cell.sub}
+            </div>
+          </Link>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Recent Contract Changes (full-width row 3) ────────────────────────────────
+function RecentContractChangesCard({ allEvents }: { allEvents: DriftEventDto[] }) {
+  const recent = useMemo(() => {
+    return [...allEvents]
+      .sort((a, b) => new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime())
+      .slice(0, 6)
+  }, [allEvents])
+
+  return (
+    <div className="rounded-xl border p-5"
+      style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-sm font-semibold" style={{ color: "var(--color-text-primary)" }}>
+            Recent Contract Changes
+          </h2>
+          <p className="text-xs mt-0.5" style={{ color: "var(--color-text-secondary)" }}>
+            All services · newest first
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <GitCompare className="w-4 h-4" style={{ color: "var(--color-text-secondary)" }} />
+          <Link to="/drift" className="text-xs font-medium hover:opacity-70 transition-opacity"
+            style={{ color: "var(--color-primary)" }}>
+            Contract changes →
+          </Link>
+        </div>
+      </div>
+
+      {recent.length === 0 ? (
+        <div className="text-center py-8 text-sm" style={{ color: "var(--color-text-secondary)" }}>
+          No contract changes recorded yet
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {recent.map(event => (
+            <div key={event.id}
+              className="rounded-lg border p-3"
+              style={{
+                background: "var(--color-surface-elevated, var(--color-background))",
+                borderColor: "var(--color-border)",
+                borderLeftWidth: "3px",
+                borderLeftColor: event.severity === "BREAKING" ? "#ef4444" : "#16a34a",
+              }}>
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="text-xs font-medium px-1.5 py-0.5 rounded"
+                  style={{
+                    background: event.severity === "BREAKING" ? "var(--color-breaking-bg, #fef2f2)" : "#f0fdf4",
+                    color: event.severity === "BREAKING" ? "#dc2626" : "#16a34a",
+                  }}>
+                  {event.severity === "BREAKING" ? "Breaking" : "Safe"}
+                </span>
+                {event.httpMethod && <MethodBadge method={event.httpMethod} />}
+                {event.apiPath && (
+                  <code className="text-xs font-mono truncate flex-1"
+                    style={{ color: "var(--color-text-primary)" }}
+                    title={event.apiPath}>
+                    {event.apiPath}
+                  </code>
+                )}
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs" style={{ color: "var(--color-text-secondary)" }}>
+                  {event.serviceName}
+                </span>
+                <span className="text-xs" style={{ color: "var(--color-text-secondary)" }}>
+                  {timeAgo(event.detectedAt)}
+                </span>
+              </div>
+              {event.detail && (
+                <p className="text-xs mt-1 truncate" style={{ color: "var(--color-text-secondary)" }}
+                  title={event.detail}>
+                  {event.detail}
+                </p>
+              )}
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -398,7 +646,6 @@ export default function OverviewPage() {
 }
 
 // ── Small reusable pieces ─────────────────────────────────────────────────────
-
 function StatCard({ label, value, icon, iconBg, valueColor, accent }: {
   label: string; value: number; icon: React.ReactNode
   iconBg: string; valueColor?: string; accent?: string

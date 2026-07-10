@@ -1,4 +1,4 @@
-﻿package io.contractsentinel.stats;
+package io.contractsentinel.stats;
 
 import org.springframework.stereotype.Component;
 
@@ -7,7 +7,7 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * In-process counter tracking every HTTP call ContractSentinel makes to registered services.
  * Incremented by the callers; read by StatsController to power the navbar badge.
- * Counts reset on app restart (intentional — this is ambient telemetry, not persistent history).
+ * Counts reset on app restart (intentional — this is ambient ambient telemetry, not persistent history).
  */
 @Component
 public class OutboundCallCounter {

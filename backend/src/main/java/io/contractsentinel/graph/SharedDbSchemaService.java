@@ -1,11 +1,11 @@
 package io.contractsentinel.graph;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import io.contractsentinel.registry.ServiceRegistry;
+import io.contractsentinel.registry.ServiceRegistryRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
@@ -18,11 +18,9 @@ import java.util.*;
 public class SharedDbSchemaService {
 
     private final ServiceDependencyRepository dependencyRepository;
+    private final ServiceRegistryRepository serviceRegistryRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final RestClient restClient = RestClient.builder().build();
-
-    @Value("${sentinel.db.schema:public}")
-    private String dbSchema;
 
     public List<TableSchemaDto> getSchemaForEdge(UUID edgeId) {
         ServiceDependency edge = dependencyRepository.findById(edgeId)
@@ -33,30 +31,38 @@ public class SharedDbSchemaService {
         }
 
         ServiceRegistry target = edge.getTargetService();
-        DatasourceConfig config = readDatasourceConfig(target);
-        return querySchema(config);
+        try {
+            DatasourceConfig config = readDatasourceConfig(target);
+            return querySchema(config);
+        } catch (RuntimeException e) {
+            throw new IllegalArgumentException(
+                    "Could not read schema from " + target.getName() + ": " + e.getMessage(), e);
+        }
     }
 
     public List<DbSchemaGroupDto> getDbGraph() {
-        List<ServiceDependency> sharedDbEdges = dependencyRepository.findAll().stream()
-                .filter(dep -> "shared-database".equals(dep.getPropertyName()))
+        // Introspect every active service's database, not just shared-database edge targets, so
+        // services that own their own DB (e.g. crm-platform-api, reached only over REST) still appear.
+        // De-duplicate by JDBC URL: services that genuinely share one physical DB (e.g. a reports
+        // service pointing at its parent's DB) collapse into a single group. Sorting by name makes the
+        // owning service (post-sales before post-sales-reports) win the group name deterministically.
+        List<ServiceRegistry> services = serviceRegistryRepository.findAllByActiveTrue().stream()
+                .sorted(Comparator.comparing(ServiceRegistry::getName))
                 .toList();
 
-        // Deduplicate by target service ID (multiple sources may share same target DB)
-        Map<UUID, ServiceRegistry> uniqueTargets = new LinkedHashMap<>();
-        for (ServiceDependency dep : sharedDbEdges) {
-            uniqueTargets.putIfAbsent(dep.getTargetService().getId(), dep.getTargetService());
-        }
-
+        Set<String> seenUrls = new HashSet<>();
         List<DbSchemaGroupDto> result = new ArrayList<>();
-        for (ServiceRegistry target : uniqueTargets.values()) {
+        for (ServiceRegistry service : services) {
             try {
-                DatasourceConfig config = readDatasourceConfig(target);
+                DatasourceConfig config = readDatasourceConfig(service);
+                if (!seenUrls.add(config.url())) {
+                    continue; // this physical database is already represented by another service
+                }
                 List<TableSchemaDto> tables = querySchema(config);
                 List<ForeignKeyDto> fks = queryForeignKeys(config);
-                result.add(new DbSchemaGroupDto(target.getName(), tables, fks));
+                result.add(new DbSchemaGroupDto(service.getName(), tables, fks));
             } catch (Exception e) {
-                log.warn("Could not query schema for {}: {}", target.getName(), e.getMessage());
+                log.warn("Could not query schema for {}: {}", service.getName(), e.getMessage());
             }
         }
         return result;
@@ -77,21 +83,19 @@ public class SharedDbSchemaService {
                 JOIN information_schema.constraint_column_usage ccu
                     ON ccu.constraint_name  = rc.unique_constraint_name
                    AND ccu.table_schema     = rc.unique_constraint_schema
-                WHERE kcu.table_schema = ?
+                WHERE kcu.table_schema = 'crm'
                 ORDER BY kcu.table_name, kcu.column_name
                 """;
         try (Connection conn = DriverManager.getConnection(cfg.url(), cfg.username(), cfg.password());
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, dbSchema);
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    fks.add(new ForeignKeyDto(
-                            rs.getString("from_table"),
-                            rs.getString("from_column"),
-                            rs.getString("to_table"),
-                            rs.getString("to_column")
-                    ));
-                }
+             PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                fks.add(new ForeignKeyDto(
+                        rs.getString("from_table"),
+                        rs.getString("from_column"),
+                        rs.getString("to_table"),
+                        rs.getString("to_column")
+                ));
             }
         } catch (SQLException e) {
             log.warn("FK query failed for {}: {}", cfg.url(), e.getMessage());
@@ -99,7 +103,7 @@ public class SharedDbSchemaService {
         return fks;
     }
 
-    private DatasourceConfig readDatasourceConfig(ServiceRegistry service) {
+    public DatasourceConfig readDatasourceConfig(ServiceRegistry service) {
         String contextPath = contextPathFrom(service.getSpecPath());
         String envUrl = service.getBaseUrl() + contextPath + "/actuator/env";
 
@@ -136,19 +140,17 @@ public class SharedDbSchemaService {
             String sql = """
                     SELECT table_name, column_name, data_type, is_nullable, ordinal_position
                     FROM information_schema.columns
-                    WHERE table_schema = ?
+                    WHERE table_schema = 'crm'
                     ORDER BY table_name, ordinal_position
                     """;
-            try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                ps.setString(1, dbSchema);
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        String table = rs.getString("table_name");
-                        String col = rs.getString("column_name");
-                        String type = rs.getString("data_type");
-                        boolean nullable = "YES".equalsIgnoreCase(rs.getString("is_nullable"));
-                        tableMap.computeIfAbsent(table, k -> new ArrayList<>()).add(new ColumnDto(col, type, nullable));
-                    }
+            try (PreparedStatement ps = conn.prepareStatement(sql);
+                 ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String table = rs.getString("table_name");
+                    String col = rs.getString("column_name");
+                    String type = rs.getString("data_type");
+                    boolean nullable = "YES".equalsIgnoreCase(rs.getString("is_nullable"));
+                    tableMap.computeIfAbsent(table, k -> new ArrayList<>()).add(new ColumnDto(col, type, nullable));
                 }
             }
         } catch (SQLException e) {
@@ -194,7 +196,7 @@ public class SharedDbSchemaService {
         return specPath.substring(0, idx);
     }
 
-    private record DatasourceConfig(String url, String username, String password) {}
+    public record DatasourceConfig(String url, String username, String password) {}
 
     public record TableSchemaDto(String tableName, List<ColumnDto> columns) {}
 

@@ -1,4 +1,4 @@
-﻿package io.contractsentinel.stats;
+package io.contractsentinel.stats;
 
 public record CallCountDto(
         long specPolls,

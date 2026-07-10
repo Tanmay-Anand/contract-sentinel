@@ -18,7 +18,7 @@ public class ServiceRegistryController {
     private final ServiceRegistryService service;
 
     @GetMapping
-    @Operation(summary = "List all registered services with their current health status")
+    @Operation(summary = "List all registered services with their health status")
     public List<ServiceRegistryDto> findAll() {
         return service.findAll();
     }

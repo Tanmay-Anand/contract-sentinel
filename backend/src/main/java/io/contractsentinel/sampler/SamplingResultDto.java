@@ -1,7 +1,7 @@
 package io.contractsentinel.sampler;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.core.type.TypeReference;
 
 import java.time.Instant;
 import java.util.Collections;
@@ -17,7 +17,9 @@ public record SamplingResultDto(
         List<String> specFields,
         List<String> undocumentedFields,
         List<String> missingFields,
-        int matchScore
+        int matchScore,
+        Long responseSizeBytes,
+        Long durationMs
 ) {
     private static final TypeReference<List<String>> LIST_TYPE = new TypeReference<>() {};
 
@@ -31,7 +33,9 @@ public record SamplingResultDto(
                 parseList(r.getSpecFields(), om),
                 parseList(r.getUndocumentedFields(), om),
                 parseList(r.getMissingFields(), om),
-                r.getMatchScore()
+                r.getMatchScore(),
+                r.getResponseSizeBytes(),
+                r.getDurationMs()
         );
     }
 

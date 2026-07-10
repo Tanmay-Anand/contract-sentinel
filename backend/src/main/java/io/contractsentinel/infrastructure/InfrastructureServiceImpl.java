@@ -1,7 +1,7 @@
 package io.contractsentinel.infrastructure;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import io.contractsentinel.registry.ServiceRegistry;
 import io.contractsentinel.registry.ServiceRegistryRepository;
 import lombok.RequiredArgsConstructor;
@@ -30,7 +30,7 @@ public class InfrastructureServiceImpl implements InfrastructureService {
     @Value("${sentinel.gateway.url:}")
     private String gatewayUrl;
 
-    // Docker containers via CLI
+    // ── Docker containers via CLI ───────────────────────────────────────────
 
     @Override
     public List<ContainerDto> listContainers() {
@@ -96,7 +96,7 @@ public class InfrastructureServiceImpl implements InfrastructureService {
         return "none";
     }
 
-    // "0.0.0.0:5540->5540/tcp, [::]:5540->5540/tcp" -> ["5540->5540/tcp"]
+    // "0.0.0.0:5540->5540/tcp, [::]:5540->5540/tcp" → ["5540→5540/tcp"]
     // Deduplicates IPv4 + IPv6 bindings for the same port mapping.
     private List<String> parsePorts(String ports) {
         if (ports == null || ports.isBlank()) return Collections.emptyList();
@@ -125,7 +125,7 @@ public class InfrastructureServiceImpl implements InfrastructureService {
                 hostPort = colon >= 0 ? hostPart.substring(colon + 1) : "";
             }
 
-            String display = hostPort.isEmpty() ? containerPart : hostPort + "->" + containerPart;
+            String display = hostPort.isEmpty() ? containerPart : hostPort + "→" + containerPart;
             seen.putIfAbsent(containerPart, display); // containerPart is the dedup key
         }
 
@@ -137,7 +137,7 @@ public class InfrastructureServiceImpl implements InfrastructureService {
         return v instanceof String s ? s : "";
     }
 
-    // Gateway health
+    // ── Gateway health ──────────────────────────────────────────────────────
 
     @Override
     public List<GatewayHealthDto> checkGatewayHealth() {
@@ -145,7 +145,7 @@ public class InfrastructureServiceImpl implements InfrastructureService {
         List<GatewayHealthDto> results = new ArrayList<>();
 
         for (ServiceRegistry svc : services) {
-            // specPath is e.g. "/post-sales/v3/api-docs" -- strip the /v3/api-docs suffix
+            // specPath is e.g. "/post-sales/v3/api-docs" — strip the /v3/api-docs suffix
             // to get the servlet context-path prefix used by both actuator and the app itself.
             String contextPath = contextPathFrom(svc.getSpecPath());
 
@@ -155,7 +155,7 @@ public class InfrastructureServiceImpl implements InfrastructureService {
             String gwUrl = null;
             String gwStatus;
             if (gatewayUrl != null && !gatewayUrl.isBlank()) {
-                // nginx proxies the same context-path prefix, e.g. /post-sales/* -> post-sales-api
+                // nginx proxies the same context-path prefix, e.g. /post-sales/* → post-sales-api
                 gwUrl = gatewayUrl + contextPath + "/actuator/health";
                 gwStatus = probeHealth(gwUrl);
             } else {
@@ -170,8 +170,8 @@ public class InfrastructureServiceImpl implements InfrastructureService {
         return results;
     }
 
-    // "/post-sales/v3/api-docs"  -> "/post-sales"
-    // "/v3/api-docs"             -> ""   (no context-path)
+    // "/post-sales/v3/api-docs"  → "/post-sales"
+    // "/v3/api-docs"             → ""   (no context-path)
     private String contextPathFrom(String specPath) {
         if (specPath == null) return "";
         int idx = specPath.lastIndexOf("/v3/api-docs");
@@ -202,7 +202,7 @@ public class InfrastructureServiceImpl implements InfrastructureService {
         return "Status unknown";
     }
 
-    // nginx config parsing
+    // ── nginx config parsing ────────────────────────────────────────────────
 
     @Override
     public List<NginxRoute> parseNginxConfig(String configText) {

@@ -1,7 +1,7 @@
 package io.contractsentinel.latency;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import io.contractsentinel.config.RequestContext;
 import io.contractsentinel.exception.SentinelException;
 import io.contractsentinel.registry.ServiceRegistry;

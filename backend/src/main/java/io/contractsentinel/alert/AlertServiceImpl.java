@@ -1,6 +1,6 @@
 package io.contractsentinel.alert;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import io.contractsentinel.config.RequestContext;
 import io.contractsentinel.exception.SentinelException;
 import lombok.RequiredArgsConstructor;
@@ -110,7 +110,7 @@ public class AlertServiceImpl implements AlertService {
                 log.debug("Skipping alert for config {} / service {} — within cooldown", config.getId(), serviceId);
                 continue;
             }
-            String message = "Breaking change in " + serviceName + ": " + changeType + " on " + path;
+            String message = "🚨 Breaking change in " + serviceName + ": " + changeType + " on " + path;
             dispatchAlert(config, message, "BREAKING_CHANGE", serviceId, serviceName);
         }
     }
@@ -130,7 +130,7 @@ public class AlertServiceImpl implements AlertService {
                 log.debug("Skipping alert for config {} / service {} — within cooldown", config.getId(), serviceId);
                 continue;
             }
-            String message = "Service unreachable: " + serviceName;
+            String message = "🔴 Service unreachable: " + serviceName;
             dispatchAlert(config, message, "UNREACHABLE", serviceId, serviceName);
         }
     }

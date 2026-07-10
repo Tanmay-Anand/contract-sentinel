@@ -1,7 +1,7 @@
 package io.contractsentinel.graph;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import io.contractsentinel.config.RequestContext;
 import io.contractsentinel.drift.DriftEvent;
 import io.contractsentinel.drift.DriftEventRepository;
@@ -31,6 +31,7 @@ public class DependencyGraphServiceImpl implements DependencyGraphService {
     private final ServiceRegistryRepository serviceRegistryRepository;
     private final SpecSnapshotRepository snapshotRepository;
     private final DriftEventRepository driftEventRepository;
+    private final OutboundLatencyCollector outboundLatencyCollector;
     private final OutboundCallCounter callCounter;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -60,6 +61,10 @@ public class DependencyGraphServiceImpl implements DependencyGraphService {
 
         List<ServiceEdgeDto> edges = allEdges.stream()
                 .map(ServiceEdgeDto::from)
+                .map(edge -> {
+                    Double avgMs = outboundLatencyCollector.latencyFor(edge.sourceId(), edge.targetId());
+                    return avgMs != null ? edge.withLatency(avgMs, OutboundLatencyCollector.bandFor(avgMs)) : edge;
+                })
                 .collect(Collectors.toList());
 
         return new ServiceGraphDto(nodes, edges, Instant.now());
