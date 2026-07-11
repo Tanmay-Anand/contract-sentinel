@@ -16,7 +16,7 @@ import { usePerformanceRegistry } from "../hooks/use-performance"
 import { sentinelService } from "../../infrastructure/api/sentinel.service"
 import { DRIFT_KEYS } from "../hooks/use-drift"
 
-// ── Health score computation ──────────────────────────────────────────────────
+// â”€â”€ Health score computation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function computeHealthScore(service: ServiceDto, allEvents: DriftEventDto[]): number {
   let score = 100
   score -= Math.min(service.breakingDriftCount * 20, 60)
@@ -34,7 +34,7 @@ function scoreColor(score: number): string {
   return "#ef4444"
 }
 
-// ── Trace utilities (mirrored from traces-page) ───────────────────────────────
+// â”€â”€ Trace utilities (mirrored from traces-page) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function parseRootName(rootName: string | null): { method: string; path: string } | null {
   if (!rootName) return null
   const match = rootName.match(/^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+(.+)$/i)
@@ -55,7 +55,7 @@ const RATING_STYLE: Record<LatencyRating, { bg: string; color: string; label: st
   fast:    { bg: "#f0fdf4", color: "#16a34a", label: "Fast" },
   normal:  { bg: "#fffbeb", color: "#d97706", label: "Normal" },
   slow:    { bg: "#fef2f2", color: "#dc2626", label: "Slow" },
-  unknown: { bg: "var(--color-background)", color: "var(--color-text-secondary)", label: "—" },
+  unknown: { bg: "var(--color-background)", color: "var(--color-text-secondary)", label: "â€”" },
 }
 
 const NOISE_PREFIXES = ["/v3/api-docs", "/swagger-ui", "/swagger-resources", "/webjars", "/scalar", "/actuator"]
@@ -66,7 +66,7 @@ function isUserTrace(t: TraceSummaryDto): boolean {
   return !NOISE_PREFIXES.some(p => parsed.path.startsWith(p))
 }
 
-// ── Time formatting ───────────────────────────────────────────────────────────
+// â”€â”€ Time formatting â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime()
   const m = Math.floor(diff / 60_000)
@@ -77,7 +77,7 @@ function timeAgo(iso: string): string {
   return `${Math.floor(h / 24)}d ago`
 }
 
-// ── Page ─────────────────────────────────────────────────────────────────────
+// â”€â”€ Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export default function OverviewPage() {
   const queryClient = useQueryClient()
   const { data: services, isLoading, isError } = useServices()
@@ -89,7 +89,7 @@ export default function OverviewPage() {
     enabled: !!services,
   })
 
-  // Live push invalidation — WebSocket events replace most polling.
+  // Live push invalidation â€” WebSocket events replace most polling.
   useEventSubscription("drift.detected",      () => void queryClient.invalidateQueries({ queryKey: DRIFT_KEYS.all }))
   useEventSubscription("health.changed",      () => void queryClient.invalidateQueries({ queryKey: ["services"] }))
   useEventSubscription("deployment.detected", () => void queryClient.invalidateQueries({ queryKey: ["overview-deployments"] }))
@@ -176,19 +176,19 @@ export default function OverviewPage() {
 
       {services && services.length > 0 && (
         <>
-          {/* Row 1 — Contract Health + Recent Traces */}
+          {/* Row 1 â€” Contract Health + Recent Traces */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <ContractHealthCard healthScores={healthScores} />
             <RecentTracesCard />
           </div>
 
-          {/* Row 2 — Session Summary + Service Latency */}
+          {/* Row 2 â€” Session Summary + Service Latency */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             <SessionSummaryCard services={services} allEvents={allEvents} />
             <ServiceLatencyCard services={services} />
           </div>
 
-          {/* Row 3 — Recent Contract Changes (full width) */}
+          {/* Row 3 â€” Recent Contract Changes (full width) */}
           <RecentContractChangesCard allEvents={allEvents} />
         </>
       )}
@@ -196,7 +196,7 @@ export default function OverviewPage() {
   )
 }
 
-// ── Contract Health Card ──────────────────────────────────────────────────────
+// â”€â”€ Contract Health Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function ContractHealthCard({
   healthScores,
 }: {
@@ -211,7 +211,7 @@ function ContractHealthCard({
             Contract Health
           </h2>
           <p className="text-xs mt-0.5" style={{ color: "var(--color-text-secondary)" }}>
-            Score 0–100 per service. Worst first.
+            Score 0â€“100 per service. Worst first.
           </p>
         </div>
         <TrendingUp className="w-4 h-4 shrink-0 mt-0.5" style={{ color: "var(--color-text-secondary)" }} />
@@ -257,10 +257,10 @@ function ContractHealthCard({
         style={{ borderColor: "var(--color-border)" }}>
         <div className="flex items-center gap-4 text-xs" style={{ color: "var(--color-text-secondary)" }}>
           <span className="flex items-center gap-1">
-            <span className="inline-block w-2 h-2 rounded-full" style={{ background: "#16a34a" }} /> 80–100 clean
+            <span className="inline-block w-2 h-2 rounded-full" style={{ background: "#16a34a" }} /> 80â€“100 clean
           </span>
           <span className="flex items-center gap-1">
-            <span className="inline-block w-2 h-2 rounded-full" style={{ background: "#f59e0b" }} /> 60–79 drifted
+            <span className="inline-block w-2 h-2 rounded-full" style={{ background: "#f59e0b" }} /> 60â€“79 drifted
           </span>
           <span className="flex items-center gap-1">
             <span className="inline-block w-2 h-2 rounded-full" style={{ background: "#ef4444" }} /> &lt;60 critical
@@ -268,17 +268,17 @@ function ContractHealthCard({
         </div>
         <Link to="/catalogue" className="text-xs font-medium hover:opacity-70 transition-opacity"
           style={{ color: "var(--color-primary)" }}>
-          View all →
+          View all â†’
         </Link>
       </div>
     </div>
   )
 }
 
-// ── Recent Traces Card ────────────────────────────────────────────────────────
+// â”€â”€ Recent Traces Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function RecentTracesCard() {
   const queryClient = useQueryClient()
-  const { data: traces } = useTraces({ sinceMinutes: 60 })
+  const { data: traces } = useTraces({ sinceMinutes: 1440 })
   const { data: perfRows } = usePerformanceRegistry()
 
   useEventSubscription("trace.received", () => void queryClient.invalidateQueries({ queryKey: ["traces"] }))
@@ -306,7 +306,7 @@ function RecentTracesCard() {
             Recent Traces
           </h2>
           <p className="text-xs mt-0.5" style={{ color: "var(--color-text-secondary)" }}>
-            Live real user traffic · last hour
+            Live real user traffic Â· last 24 hours
           </p>
         </div>
         <Waypoints className="w-4 h-4 shrink-0 mt-0.5" style={{ color: "var(--color-text-secondary)" }} />
@@ -333,7 +333,7 @@ function RecentTracesCard() {
                 style={{ background: "var(--color-surface-elevated, var(--color-background))" }}>
                 {parsed
                   ? <MethodBadge method={parsed.method} />
-                  : <span className="text-xs font-mono" style={{ color: "var(--color-text-secondary)" }}>—</span>}
+                  : <span className="text-xs font-mono" style={{ color: "var(--color-text-secondary)" }}>â€”</span>}
                 <span className="text-xs font-mono truncate flex-1" style={{ color: "var(--color-text-primary)" }}
                   title={parsed?.path}>
                   {parsed?.path ?? t.rootName}
@@ -359,14 +359,14 @@ function RecentTracesCard() {
         style={{ borderColor: "var(--color-border)" }}>
         <Link to="/traces" className="text-xs font-medium hover:opacity-70 transition-opacity"
           style={{ color: "var(--color-primary)" }}>
-          Traces →
+          Traces â†’
         </Link>
       </div>
     </div>
   )
 }
 
-// ── Service Latency Card ──────────────────────────────────────────────────────
+// â”€â”€ Service Latency Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function ServiceLatencyCard({ services }: { services: ServiceDto[] }) {
   return (
     <div className="rounded-xl border p-5 flex flex-col"
@@ -389,7 +389,7 @@ function ServiceLatencyCard({ services }: { services: ServiceDto[] }) {
   )
 }
 
-// ── Per-service latency row ───────────────────────────────────────────────────
+// â”€â”€ Per-service latency row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function ServiceLatencyRow({ service }: { service: ServiceDto }) {
   const unreachable = service.status === "UNREACHABLE" || service.status === "PARSE_FAILED"
   const { data: metrics } = useLatency(service.id, 30)
@@ -422,7 +422,7 @@ function ServiceLatencyRow({ service }: { service: ServiceDto }) {
         </span>
         <span className="text-xs font-semibold tabular-nums"
           style={{ color: unreachable ? "#ef4444" : "var(--color-primary)" }}>
-          {unreachable ? "unreachable" : latest != null ? `${Math.round(latest)} ms` : "—"}
+          {unreachable ? "unreachable" : latest != null ? `${Math.round(latest)} ms` : "â€”"}
         </span>
       </div>
 
@@ -471,7 +471,7 @@ function ServiceLatencyRow({ service }: { service: ServiceDto }) {
   )
 }
 
-// ── Session Summary card ──────────────────────────────────────────────────────
+// â”€â”€ Session Summary card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function SessionSummaryCard({ services, allEvents }: { services: ServiceDto[]; allEvents: DriftEventDto[] }) {
   const breakingCount = allEvents.filter(e => e.severity === "BREAKING").length
   const driftedCount  = new Set(
@@ -562,7 +562,7 @@ function SessionSummaryCard({ services, allEvents }: { services: ServiceDto[]; a
   )
 }
 
-// ── Recent Contract Changes (full-width row 3) ────────────────────────────────
+// â”€â”€ Recent Contract Changes (full-width row 3) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function RecentContractChangesCard({ allEvents }: { allEvents: DriftEventDto[] }) {
   const recent = useMemo(() => {
     return [...allEvents]
@@ -579,14 +579,14 @@ function RecentContractChangesCard({ allEvents }: { allEvents: DriftEventDto[] }
             Recent Contract Changes
           </h2>
           <p className="text-xs mt-0.5" style={{ color: "var(--color-text-secondary)" }}>
-            All services · newest first
+            All services Â· newest first
           </p>
         </div>
         <div className="flex items-center gap-3">
           <GitCompare className="w-4 h-4" style={{ color: "var(--color-text-secondary)" }} />
           <Link to="/drift" className="text-xs font-medium hover:opacity-70 transition-opacity"
             style={{ color: "var(--color-primary)" }}>
-            Contract changes →
+            Contract changes â†’
           </Link>
         </div>
       </div>
@@ -645,7 +645,7 @@ function RecentContractChangesCard({ allEvents }: { allEvents: DriftEventDto[] }
   )
 }
 
-// ── Small reusable pieces ─────────────────────────────────────────────────────
+// â”€â”€ Small reusable pieces â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function StatCard({ label, value, icon, iconBg, valueColor, accent }: {
   label: string; value: number; icon: React.ReactNode
   iconBg: string; valueColor?: string; accent?: string

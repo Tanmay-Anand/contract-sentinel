@@ -7,5 +7,8 @@ public record CallCountDto(
         long outboundScans,
         long samplerRuns,
         long actuatorMetrics,
-        long total
+        long total,
+        long ingestRequests,
+        long ingestSpans,
+        long prodEquivalentRequests
 ) {}
