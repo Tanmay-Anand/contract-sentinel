@@ -2,9 +2,10 @@ import { useState } from "react"
 import { createRootRoute, Link, Outlet } from "@tanstack/react-router"
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools"
 import { Toaster } from "sonner"
-import { Activity, List, BookOpen, Server, Network, Radio, Gauge, Waypoints } from "lucide-react"
+import { Activity, List, BookOpen, Server, Network, Gauge, Waypoints } from "lucide-react"
 import logo from "../assets/logo.png"
 import { useCallCount } from "../domains/contract-sentinel/presentation/hooks/use-stats"
+import { useConnectionState } from "../domains/contract-sentinel/presentation/hooks/use-event-subscription"
 
 export const Route = createRootRoute({
   component: RootLayout,
@@ -57,9 +58,16 @@ function NavLink({ to, icon, label }: { to: string; icon: React.ReactNode; label
   )
 }
 
+const DOT_COLOR: Record<string, string> = {
+  open:       "#16a34a",
+  connecting: "#f59e0b",
+  closed:     "#94a3b8",
+}
+
 function CallCountBadge() {
   const { data } = useCallCount()
   const [open, setOpen] = useState(false)
+  const wsState = useConnectionState()
 
   if (!data) return null
 
@@ -93,8 +101,9 @@ function CallCountBadge() {
           transition: "border-color 0.15s, background 0.15s",
         }}
       >
-        <Radio className="w-3 h-3 shrink-0" style={{ color: "var(--color-primary)" }} />
-        {fmt(data.total)} calls
+        <span style={{ color: DOT_COLOR[wsState] ?? "#94a3b8", fontSize: 8, lineHeight: 1 }}>â—</span>
+        <span style={{ color: "var(--color-text-primary)" }}>Live</span>
+        <span style={{ color: "var(--color-text-secondary)" }}>Â· {fmt(data.total)} out Â· {fmt(data.ingestRequests)} recv</span>
       </div>
 
       {open && (
@@ -141,6 +150,41 @@ function CallCountBadge() {
             <span className="text-xs font-semibold tabular-nums" style={{ color: "var(--color-primary)" }}>
               {fmt(data.total)}
             </span>
+          </div>
+
+          <div className="mt-2.5 pt-2.5 border-t" style={{ borderColor: "var(--color-border)" }}>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold" style={{ color: "var(--color-text-primary)" }}>
+                Inbound trace calls
+              </span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full"
+                style={{ background: "var(--color-primary-bg)", color: "var(--color-primary)" }}>
+                since startup
+              </span>
+            </div>
+            <div className="space-y-1.5">
+              {[
+                { label: "Dev (batch-size:1)", value: data.ingestRequests, color: "#f59e0b" },
+                { label: "Prod equivalent (~50/b)", value: data.prodEquivalentRequests, color: "#16a34a" },
+              ].map(({ label, value, color }) => (
+                <div key={label} className="flex items-center gap-2">
+                  <span className="text-xs w-36 shrink-0" style={{ color: "var(--color-text-secondary)" }}>
+                    {label}
+                  </span>
+                  <div className="flex-1 h-1.5 rounded-full" style={{ background: "var(--color-background)" }}>
+                    <div className="h-1.5 rounded-full"
+                      style={{
+                        width: `${data.ingestRequests === 0 ? 0 : (value / data.ingestRequests) * 100}%`,
+                        background: color,
+                        opacity: value === 0 ? 0 : 1,
+                      }} />
+                  </div>
+                  <span className="text-xs w-10 text-right tabular-nums" style={{ color: "var(--color-text-primary)" }}>
+                    {fmt(value)}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}

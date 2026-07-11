@@ -294,7 +294,7 @@ export interface ServiceNodeDto {
 }
 
 export interface EndpointCall {
-  method: string   // GET, POST, PUT, DELETE, …
+  method: string   // GET, POST, PUT, DELETE, â€¦
   path: string     // e.g. /cost-sheets/unit-config/{unitId}
   description: string
 }
@@ -368,6 +368,9 @@ export interface CallCountDto {
   samplerRuns: number
   actuatorMetrics: number
   total: number
+  ingestRequests: number
+  ingestSpans: number
+  prodEquivalentRequests: number
 }
 
 export interface DbQueryResponse {
