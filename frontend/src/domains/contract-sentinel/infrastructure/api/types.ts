@@ -373,6 +373,7 @@ export interface CallCountDto {
   ingestRequests: number
   ingestSpans: number
   prodEquivalentRequests: number
+  realTraces: number
 }
 
 export interface DbQueryResponse {
@@ -480,9 +481,20 @@ export interface AgentStep {
   at: string
 }
 
+export interface LlmCallEntry {
+  iter: number
+  ctxMsgs: number
+  ms: number
+}
+
+export interface AgentProvenance {
+  calls: LlmCallEntry[]
+  totalMs: number
+}
+
 export interface AgentRunDto {
   id: string
-  agentType: "DIAGNOSE" | "SCHEMA_RISK"
+  agentType: "DIAGNOSE" | "SCHEMA_RISK" | "DIAGNOSE_STRUCTURED"
   status: "RUNNING" | "COMPLETE" | "FAILED"
   steps: AgentStep[]
   resultMarkdown: string | null
@@ -490,4 +502,57 @@ export interface AgentRunDto {
   iterations: number
   createdAt: string
   completedAt: string | null
+  provenance: AgentProvenance | null
+}
+
+// Knowledge Graph
+export type TargetType = "TABLE" | "COLUMN" | "METRIC"
+export type AggregationFunction = "COUNT" | "SUM" | "AVG" | "MIN" | "MAX" | "CUSTOM"
+
+export interface SynonymDto {
+  id: string
+  term: string
+  targetType: TargetType
+  targetName: string
+  serviceName: string | null
+  proposedByLlm: boolean
+  approved: boolean
+  createdAt: string
+  approvedAt: string | null
+}
+
+export interface MetricDto {
+  id: string
+  name: string
+  displayName: string
+  description: string | null
+  sqlDefinition: string
+  anchorTable: string
+  serviceName: string | null
+  aggregationFunction: AggregationFunction
+  proposedByLlm: boolean
+  approved: boolean
+  createdAt: string
+  approvedAt: string | null
+}
+
+export interface ServiceKnowledgeSummaryDto {
+  serviceName: string
+  approvedSynonyms: number
+  pendingSynonyms: number
+  approvedMetrics: number
+  pendingMetrics: number
+}
+
+export interface NlQueryResponse {
+  question: string
+  compiledSql: string
+  ir: unknown
+  columns: string[]
+  rows: unknown[][]
+  rowCount: number
+  executionMs: number
+  totalMs: number
+  llmAttempts: number
+  synonymsApplied: string[]
 }

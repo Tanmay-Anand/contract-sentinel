@@ -85,6 +85,27 @@ public class AgentRunStore {
         });
     }
 
+    @Transactional
+    public void recordLlmCall(UUID runId, int iteration, int contextMessages, long durationMs) {
+        repository.findById(runId).ifPresent(run -> {
+            try {
+                String existing = run.getProvenanceJson();
+                ArrayNode calls;
+                if (existing == null || existing.isBlank()) {
+                    calls = mapper.createArrayNode();
+                } else {
+                    calls = (ArrayNode) mapper.readTree(existing);
+                }
+                ObjectNode entry = calls.addObject();
+                entry.put("iter", iteration);
+                entry.put("ctxMsgs", contextMessages);
+                entry.put("ms", durationMs);
+                run.setProvenanceJson(mapper.writeValueAsString(calls));
+                repository.save(run);
+            } catch (Exception ignored) {}
+        });
+    }
+
     @Transactional(readOnly = true)
     public AgentRunDto get(UUID runId) {
         AgentRun run = repository.findById(runId)

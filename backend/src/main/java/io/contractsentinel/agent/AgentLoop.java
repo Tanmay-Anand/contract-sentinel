@@ -53,7 +53,9 @@ public class AgentLoop {
                     return;
                 }
 
+                long llmStart = System.currentTimeMillis();
                 LlmResponse response = llmClient.chat(messages, specs);
+                store.recordLlmCall(runId, i + 1, messages.size(), System.currentTimeMillis() - llmStart);
                 store.incrementIteration(runId);
 
                 if (!response.hasToolCalls()) {
