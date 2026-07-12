@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="frontend/src/assets/logo.png" alt="ContractSentinel" height="64" />
+  <img src="frontend/src/assets/logo-white.png" alt="ContractSentinel" height="64" />
 </p>
 
 <h1 align="center">ContractSentinel</h1>
@@ -24,10 +24,13 @@ The problem you have right now: Suppose you have three services running. A field
 - **Stores** a permanent snapshot and drift history in PostgreSQL (SHA-256 dedup — no duplicate snapshots)
 - **Maps** your service dependency graph: shared databases, REST calls, webhooks, external APIs
 - **Explores** your database schema: foreign key relationships, cross-service table dependencies
-- **Queries** any monitored service's database directly from the UI — read-only SQL console with FK-aware graph visualization
+- **Queries** any monitored service's database in two modes: hand-written SQL or plain-English natural language (NL → Semantic IR → SQL → execute)
 - **Tracks** latency, endpoint usage, response samples, and dead endpoints
+- **Diagnoses** slow endpoints deterministically (latency regression → deployment correlation → usage trend → EXPLAIN → connection pool → LLM narration)
 - **Analyses** schema changes with an AI agent (Claude or local Ollama) to assess migration risk
+- **Maintains** a Knowledge Graph of domain term synonyms and pre-defined SQL metrics that improve natural-language query accuracy over time
 - **Alerts** via configured channels when breaking changes are detected
+- **Streams** live events to connected browser clients over WebSocket
 
 ---
 
@@ -42,10 +45,17 @@ The problem you have right now: Suppose you have three services running. A field
 | **DB schema explorer** | Click any table → see it + 1-hop FK neighbors; progressive expand; cross-service FKs highlighted |
 | **API Catalogue** | Browse every endpoint across all services with request/response schemas and latency pills |
 | **Infrastructure view** | Container health, gateway routes, uptime |
-| **Performance tracking** | Per-endpoint p50/p95 latency scraped from Prometheus; sparklines and volatility over time |
+| **Performance registry** | Per-endpoint p50/p95 latency scraped from Prometheus; sparklines and volatility over time |
 | **Response sampler** | Configure and run live response samples; durationMs feeds latency pills when Prometheus has no data |
-| **AI schema analysis** | LLM agent (Claude or Ollama) analyses schema diffs and scores migration risk |
+| **SQL query console** | Monaco editor with FK-aware graph visualisation, table browser, Ctrl+Enter to run |
+| **NL query console** | Ask a plain-English question; ContractSentinel translates it to SQL via a typed Semantic IR and executes it |
+| **Knowledge Graph** | Manage synonyms (NL terms → schema entities) and pre-defined SQL metrics; LLM-proposed entries await human approval |
+| **Performance Diagnosis agent** | Tool-calling agent loop: latency regression → deployment correlation → usage trend → EXPLAIN → pool check → ranked hypotheses |
+| **Structured Diagnosis** | Deterministic state machine version of the diagnosis: same 5 checks in a fixed order, LLM used only for final narration |
+| **Schema Risk agent** | Analyses a migration SQL statement: row counts, FK impact, affected endpoints, rollout recommendation |
+| **Agent provenance** | Every agent run records per-LLM-call timing and context size, visible in the run panel |
 | **Alert channels** | Webhook / email alerts on breaking contract changes |
+| **Real-time WebSocket** | Browser clients receive push events for drift detections and agent run updates without polling |
 
 ---
 
@@ -61,6 +71,7 @@ The problem you have right now: Suppose you have three services running. A field
                                               • OpenAPI diff engine (swagger-parser)
                                               • Oldest-baseline drift detection
                                               • REST API on :8090
+                                              • WebSocket on :8090/ws
                                                      │
                                                      ▼
                                          ContractSentinel UI (React 19)
@@ -149,7 +160,8 @@ contract-sentinel/
 │       │   ├── snapshot/           SpecSnapshot — fetch & store OpenAPI specs
 │       │   ├── drift/              DriftEvent — detect & classify contract changes
 │       │   ├── graph/              ServiceDependency — dependency graph, DB schema introspection
-│       │   ├── query/              DbQuery — read-only SQL console (SELECT-only, auto-LIMIT 500)
+│       │   ├── query/              DbQuery — SQL console + NL query (SemanticQueryIR, IrToSqlCompiler, SemanticQueryValidator)
+│       │   ├── knowledge/          Knowledge Graph — GraphSynonym, GraphMetric, approval workflow, LLM proposals
 │       │   ├── catalogue/          ApiCatalogue — browse all endpoints
 │       │   ├── sampler/            ResponseSampler — live samples + size/latency correlation
 │       │   ├── latency/            LatencyMetric — per-endpoint latency history
@@ -157,12 +169,13 @@ contract-sentinel/
 │       │   ├── trace/              Zipkin span receiver + request-waterfall assembly
 │       │   ├── profiling/          JFR hotspot profiler (async orchestration + .jfr parsing)
 │       │   ├── llm/                Pluggable LLM client (Ollama / Claude)
-│       │   ├── agent/              Tool-calling agents (diagnosis, schema-risk) + tools
+│       │   ├── agent/              DiagnosisAgent, SchemaRiskAgent (tool-calling loop), DiagnosisOrchestrator (structured), provenance tracking
 │       │   ├── usage/              EndpointUsage — dead endpoint detection
 │       │   ├── deployment/         DeploymentEvent — deployment tracking
 │       │   ├── alert/              AlertConfig — webhook/email alert channels
 │       │   ├── infrastructure/     Container health, gateway routes
-│       │   └── stats/              OutboundCallCounter
+│       │   ├── stats/              OutboundCallCounter
+│       │   └── ws/                 WebSocket config + event publisher (real-time push)
 │       └── resources/
 │           └── application.yaml    All configuration lives here
 └── frontend/
@@ -173,10 +186,20 @@ contract-sentinel/
         ├── domains/contract-sentinel/
         │   ├── infrastructure/api/ sentinel.service.ts, types.ts
         │   └── presentation/
-        │       ├── components/     drift-event-row, dependency-card-node, db-schema-explorer, query-console, …
-        │       ├── hooks/          use-drift, use-graph, use-services, use-stats, …
-        │       └── pages/          graph-page, drift-feed-page, overview-page, …
+        │       ├── components/     drift-event-row, dependency-card-node, db-schema-explorer,
+        │       │                   query-console (SQL + NL modes), agent-run-panel (with provenance), …
+        │       ├── hooks/          use-drift, use-graph, use-services, use-stats, use-agent-run, …
+        │       └── pages/          graph-page, drift-feed-page, overview-page, performance-page, …
         └── routes/                 __root.tsx, TanStack Router file-based routes
+            ├── index.tsx           Overview
+            ├── drift.tsx           Contract Changes
+            ├── catalogue.tsx       API Catalogue
+            ├── performance.tsx     Performance Registry
+            ├── traces.tsx          Request Waterfall
+            ├── infrastructure.tsx  Infrastructure
+            ├── graph.tsx           Dependency Graph + DB Schema + Query Console
+            ├── knowledge.tsx       Knowledge Graph (synonyms, metrics, approval)
+            └── alerts.tsx          Alert Channels
 ```
 
 ---
@@ -297,7 +320,7 @@ sentinel:
   db:
     schema: public                 # PostgreSQL schema to inspect
 
-  # AI-powered schema risk analysis (optional)
+  # AI-powered features (diagnosis, schema risk, NL query, knowledge proposals)
   llm:
     provider: ${SENTINEL_LLM_PROVIDER:ollama}   # ollama | claude
     ollama:
@@ -356,35 +379,58 @@ sentinel:
 |---|---|---|
 | `GET` | `/api/graph` | Full service dependency graph (nodes + edges) |
 | `GET` | `/api/graph/blast-radius/{serviceId}` | Services that would break if this service changes |
-| `POST` | `/api/graph/dependency` | Add a manual dependency edge |
-| `DELETE` | `/api/graph/dependency/{id}` | Remove a dependency edge |
-| `GET` | `/api/graph/db-schema/{edgeId}` | DB schema tables for a shared-DB edge |
+| `GET` | `/api/graph/db-graph` | Full DB schema grouped by service |
+| `POST` | `/api/dependencies` | Add a manual dependency edge |
+| `DELETE` | `/api/dependencies/{id}` | Remove a dependency edge |
+| `GET` | `/api/dependencies/{edgeId}/db-schema` | DB schema tables for a shared-DB edge |
 
 ### Database Query Console
 
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/api/db/query` | Execute a read-only SELECT against a registered service's database |
+| `POST` | `/api/db/nl-query` | Translate a natural-language question to SQL via Semantic Query IR and execute it |
 
-Request body: `{ "serviceId": "<uuid>", "sql": "SELECT ..." }`
-Response: `{ "columns": [...], "rows": [[...]], "rowCount": N, "executionMs": N }`
+`/api/db/query` body: `{ "serviceId": "<uuid>", "sql": "SELECT ..." }`
+`/api/db/nl-query` body: `{ "serviceId": "<uuid>", "question": "How many orders were placed last week?" }`
+
+NL query response includes `compiledSql`, `ir`, `columns`, `rows`, `rowCount`, `executionMs`, `llmAttempts`, and `synonymsApplied`.
+
+### Knowledge Graph
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/knowledge/graph` | Summary of approved/pending synonyms and metrics per service |
+| `GET` | `/api/knowledge/synonyms` | List synonyms (filter: `approved`, `serviceName`) |
+| `POST` | `/api/knowledge/synonyms` | Create a synonym manually (auto-approved) |
+| `POST` | `/api/knowledge/synonyms/{id}/approve` | Approve an LLM-proposed synonym |
+| `DELETE` | `/api/knowledge/synonyms/{id}` | Delete a synonym |
+| `POST` | `/api/knowledge/synonyms/propose/{serviceId}` | Ask the LLM to propose synonyms for a service |
+| `GET` | `/api/knowledge/metrics` | List pre-defined SQL metrics (filter: `approved`, `serviceName`) |
+| `POST` | `/api/knowledge/metrics` | Create a metric manually (auto-approved) |
+| `POST` | `/api/knowledge/metrics/{id}/approve` | Approve an LLM-proposed metric |
+| `DELETE` | `/api/knowledge/metrics/{id}` | Delete a metric |
+| `POST` | `/api/knowledge/metrics/propose/{serviceId}` | Ask the LLM to propose metrics for a service |
+| `POST` | `/api/knowledge/resolve` | Resolve synonyms found in a text string |
 
 ### Catalogue, Latency, Usage
 
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/api/catalogue` | All endpoints across all services |
-| `GET` | `/api/latency` | Latency metrics (filter: `serviceId`, `path`) |
-| `GET` | `/api/sampler` | Response samples (filter: `serviceId`, `path`) |
-| `GET` | `/api/usage/dead-endpoints` | Endpoints with zero observed traffic |
+| `GET` | `/api/services/{id}/latency` | Latency metrics for a service |
+| `GET` | `/api/sampler/endpoints` | Configured response samplers |
+| `GET` | `/api/services/{id}/usage/dead-endpoints` | Endpoints with zero observed traffic |
 
 ### Alerts
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/alerts/channels` | List alert channels |
-| `POST` | `/api/alerts/channels` | Create an alert channel (webhook/email) |
-| `DELETE` | `/api/alerts/channels/{id}` | Remove an alert channel |
+| `GET` | `/api/alerts/configs` | List alert configurations |
+| `POST` | `/api/alerts/configs` | Create an alert configuration (webhook/email) |
+| `PUT` | `/api/alerts/configs/{id}` | Update an alert configuration |
+| `DELETE` | `/api/alerts/configs/{id}` | Remove an alert configuration |
+| `GET` | `/api/alerts/events` | List fired alert events |
 
 ### Performance, Profiling, Traces & Agents
 
@@ -398,9 +444,10 @@ Response: `{ "columns": [...], "rows": [[...]], "rowCount": N, "executionMs": N 
 | `POST` | `/api/traces/zipkin` | Zipkin v2 span ingest (services post here automatically) |
 | `GET`  | `/api/traces` | Recent traces (filters: `serviceName`, `minDurationMs`, `sinceMinutes`) |
 | `GET`  | `/api/traces/{traceId}` | Assembled trace waterfall |
-| `POST` | `/api/agents/diagnose` | Start a performance-diagnosis agent run |
+| `POST` | `/api/agents/diagnose` | Start a performance-diagnosis agent run (LLM-driven tool-calling loop) |
+| `POST` | `/api/agents/diagnose-structured` | Start a structured diagnosis (deterministic state machine; LLM for narration only) |
 | `POST` | `/api/agents/schema-risk` | Start a schema-change risk assessment |
-| `GET`  | `/api/agents/runs/{runId}` | Poll an agent run's live steps + result |
+| `GET`  | `/api/agents/runs/{runId}` | Poll an agent run's live steps, result, and LLM provenance |
 
 Full interactive docs: `http://localhost:8090/swagger-ui.html`
 
@@ -437,32 +484,37 @@ Click any relay node to open a sidebar with full details. Click any service node
 
 ## Query Console
 
-The **Graph → Query Console** tab is a read-only SQL console backed by the same JDBC infrastructure that powers the DB schema explorer.
+The **Graph → Query Console** tab supports two modes, switchable from the toolbar:
 
-### Layout
+### SQL Mode
+
+Hand-write SQL in the Monaco editor. Ctrl+Enter to run.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Target DB: [service selector ▼]   baseUrl        [▶ Run]   │
+│  [SQL] [Ask]  Target DB: [service ▼]  baseUrl   [▶ Run]    │
 ├──────────────┬──────────────────────────────────────────────┤
 │  Table       │  Monaco Editor (SQL, Ctrl+Enter to run)      │
 │  Browser     ├──────────────────────────────────────────────┤
-│  (click to   │  ┌ Data results ┐ ┌ Graph results ┐  29 rows │
-│   insert)    │  └──────────────────────────────────────────┘│
-│              │  Results panel (drag divider to resize)      │
+│  (click to   │  ┌ Data results ┐ ┌ Graph results ┐  29 rows│
+│   insert)    │  └─────────────────────────────────────────┘│
 └──────────────┴──────────────────────────────────────────────┘
 ```
 
-### Features
+- **Table browser** — left panel lists all tables grouped by service. Click a table → inserts `SELECT * FROM table LIMIT 50`. Click a column → adds it to the SELECT list.
+- **Resizable split** — drag the divider to adjust the editor/results ratio.
 
-- **Table browser** — left panel shows all tables for the selected service, grouped and color-coded. Click a table → inserts `SELECT * FROM table LIMIT 50`. Click a column → adds it to the SELECT list.
-- **Monaco editor** — full VS Code editor: SQL syntax highlighting, line numbers, `Ctrl+Enter` to run.
-- **Resizable split** — drag the divider between the editor and results panel to adjust height.
-- **Data results tab** — scrollable table grid with sticky headers, null rendering, row count, execution time, and "Copy as JSON".
-- **Graph results tab** — always available regardless of query type. Renders every unique value as a colored node with d3-style physics (repulsion + spring attraction). FK relationships from the loaded schema metadata automatically draw edges between related values. Single-column results show as a scattered cloud with a "No relationships detected" hint.
-  - Node color = service the column belongs to (post-sales: blue, pre-sales: green, platform: purple, reports: amber)
-  - Minimap, zoom, pan, draggable nodes
-  - Capped at 200 nodes
+### Ask Mode (Natural Language)
+
+Switch to **Ask** mode and type a plain-English question. ContractSentinel:
+
+1. Resolves domain synonyms from the Knowledge Graph (e.g. "customer" → `buyer_id`)
+2. Asks the LLM to fill a typed Semantic Query IR (intent, target table, filters, ordering, limit)
+3. Validates the IR against the actual DB schema — feeds validation errors back to the LLM for repair (up to 3 attempts)
+4. Compiles the IR to safe SQL via `IrToSqlCompiler`
+5. Executes and returns results alongside the compiled SQL, synonyms applied, and LLM attempt count
+
+The same Data and Graph result views work for both modes.
 
 ### Safety
 
@@ -476,7 +528,40 @@ All queries are validated before execution:
 | `WITH ... SELECT` CTEs | Allowed |
 | Max rows returned | Hard-capped at 500 in the service layer |
 
-The console never writes to the database. It is a developer introspection tool, not an admin console.
+The console never writes to the database.
+
+---
+
+## Knowledge Graph
+
+The **Knowledge** tab manages two types of domain knowledge that make natural-language queries more accurate:
+
+### Synonyms
+
+A synonym maps a natural-language term to a schema entity:
+
+| Term | Target Type | Target Name | Service |
+|---|---|---|---|
+| customer | TABLE | buyers | order-service |
+| total amount | COLUMN | amount_total | order-service |
+| count | METRIC | total_order_count | — |
+
+Synonyms can be created manually (auto-approved) or proposed by the LLM (pending human approval). The NL query pipeline applies only approved synonyms before sending the question to the LLM, reducing hallucination.
+
+### Metrics
+
+A metric is a reusable SQL snippet with a name, description, and anchor table:
+
+```sql
+-- name: total_order_count
+SELECT COUNT(*) FROM orders
+```
+
+When the NL query IR identifies intent `METRIC` and a known metric name, `IrToSqlCompiler` returns the metric's SQL definition directly — no LLM compilation needed.
+
+### Approval Workflow
+
+LLM-proposed synonyms and metrics appear as **Pending** until a developer reviews and approves them. This prevents untrusted schema mappings from silently corrupting query results.
 
 ---
 
@@ -489,17 +574,13 @@ The **Graph → Database Schema** tab gives you a focused exploration view:
 3. **Expand** — click `+` on any neighbor node to pin it and expand its own neighbors
 4. **Cross-service FKs** — FK relationships that cross service boundaries are highlighted in amber
 
-Every active service's database is introspected (via its `/actuator/env` datasource config), not just
-those linked by a `shared-database` edge — so a service that owns its own database and is reached only over
-REST still shows up. Databases are de-duplicated by JDBC URL, so services that genuinely share one physical
-database collapse into a single group instead of appearing twice.
+Every active service's database is introspected (via its `/actuator/env` datasource config), not just those linked by a `shared-database` edge. Databases are de-duplicated by JDBC URL, so services that genuinely share one physical database collapse into a single group.
 
 ---
 
 ## Performance Intelligence & AI Agents
 
-ContractSentinel goes beyond contract validation into a full **performance intelligence stack**. These
-features answer different dimensions of "why is this slow" without any external tool like Grafana or Datadog.
+ContractSentinel goes beyond contract validation into a full **performance intelligence stack**.
 
 | Layer | What it tells you |
 |---|---|
@@ -512,11 +593,7 @@ features answer different dimensions of "why is this slow" without any external 
 
 ### Performance Registry & Volatility
 
-Every poll, ContractSentinel scrapes each service's `/actuator/prometheus` and writes an
-`endpoint_performance_snapshots` row per observed endpoint (real p50/p95/p99, count delta, error count).
-The **Performance** tab renders one sortable row per endpoint with a 7-day p95 sparkline, a relative
-ranking badge ("8.4× median p99"), and a volatility rating (Stable / Moderate / Volatile / Erratic,
-computed as stddev/mean of the p95 series).
+Every poll, ContractSentinel scrapes each service's `/actuator/prometheus` and writes an `endpoint_performance_snapshots` row per observed endpoint (real p50/p95/p99, count delta, error count). The **Performance** tab renders one sortable row per endpoint with a 7-day p95 sparkline, a relative ranking badge ("8.4× median p99"), and a volatility rating (Stable / Moderate / Volatile / Erratic).
 
 > Real percentiles require each service to publish them. Add to each monitored service's config:
 > ```yaml
@@ -528,14 +605,12 @@ computed as stddev/mean of the p95 series).
 >   endpoints:
 >     web:
 >       exposure:
->         include: health, info, prometheus   # prometheus must be exposed
+>         include: health, info, prometheus
 > ```
 
 ### JFR Hotspot Profiler
 
-Click **⚡ Profile** on any service card to run a 15–30s Java Flight Recorder session. ContractSentinel
-triggers it via a custom actuator endpoint, downloads the `.jfr`, parses `jdk.ExecutionSample` events,
-and surfaces the top hot methods by CPU sample share. Add this endpoint to each service you want to profile:
+Click **⚡ Profile** on any service card to run a 15–30s Java Flight Recorder session. ContractSentinel triggers it via a custom actuator endpoint, downloads the `.jfr`, parses `jdk.ExecutionSample` events, and surfaces the top hot methods by CPU sample share. Add this endpoint to each service you want to profile:
 
 ```java
 @Component
@@ -556,8 +631,7 @@ public class JfrProfilingEndpoint {
 }
 ```
 
-A complete, copy-paste implementation lives in `docs/JfrProfilingEndpoint.java`. Permit the POST in your
-security config: `.requestMatchers(HttpMethod.POST, "/actuator/jfr").permitAll()`.
+A complete, copy-paste implementation lives in `docs/JfrProfilingEndpoint.java`. Permit the POST in your security config: `.requestMatchers(HttpMethod.POST, "/actuator/jfr").permitAll()`.
 
 ### Request Waterfall & Inter-Service Latency
 
@@ -577,22 +651,40 @@ management:
       endpoint: http://localhost:8090/api/traces/zipkin
 ```
 
-The **Traces** tab lists collected traces and renders each as a waterfall. The dependency **Graph**
-edges are annotated with average inter-service round-trip latency (green &lt;10ms / amber 10–50ms /
-red &gt;50ms), derived from each caller's `http.client.requests` metric.
+The **Traces** tab lists collected traces and renders each as a waterfall. The dependency **Graph** edges are annotated with average inter-service round-trip latency (green &lt;10ms / amber 10–50ms / red &gt;50ms).
 
 ### AI Agents
 
-Two autonomous agents use the tools above to investigate on your behalf. They run a real tool-calling
-loop — deciding which tool to call next based on what the previous one returned — and stream their steps
-live while they work.
+Three agents investigate on your behalf. Each run records live steps as they execute and full LLM provenance (per-call timing, context size) visible in the agent run panel.
 
-- **Performance Diagnosis** — from a slow endpoint: checks latency regression → correlates deployments →
-  checks usage → runs `EXPLAIN ANALYZE` on the inferred query → checks the connection pool → ranks hypotheses.
-- **Schema Change Risk** — from a migration statement: counts rows, maps foreign keys, finds affected
-  endpoints and frontend references, and produces a risk report with a safe rollout recommendation.
+#### Performance Diagnosis (LLM-driven)
 
-The LLM backend is pluggable — **Ollama** (local, default) or **Claude** (opt-in):
+`POST /api/agents/diagnose` starts a tool-calling loop where the LLM decides which tool to call next based on previous results:
+
+1. Fetch latency regression metrics
+2. Correlate with recent deployments
+3. Check usage trend
+4. Run `EXPLAIN ANALYZE` on the inferred query
+5. Check connection pool stats
+6. Rank hypotheses and produce a narrated report
+
+#### Structured Diagnosis (Deterministic)
+
+`POST /api/agents/diagnose-structured` runs the same five checks in a **fixed, deterministic order** — no LLM involved in tool selection. The LLM is called exactly once at the end to narrate the collected evidence. This is faster, more predictable, and easier to reason about:
+
+```
+latency check → deployment correlation → usage trend → EXPLAIN → pool check → LLM narration
+```
+
+Each step is skipped with a structured reason if the data is unavailable (e.g. EXPLAIN skipped if no IR is available).
+
+#### Schema Change Risk
+
+`POST /api/agents/schema-risk` analyses a migration SQL statement: counts rows, maps FK relationships, finds affected endpoints and frontend references, and produces a risk report with a safe rollout recommendation.
+
+### LLM Configuration
+
+Both agents and the NL query pipeline use the same pluggable LLM client — **Ollama** (local, default) or **Claude** (opt-in):
 
 ```yaml
 sentinel:
@@ -603,9 +695,20 @@ sentinel:
       model: qwen2.5:14b                  # a tool-capable model
     claude:
       api-key: ${SENTINEL_LLM_CLAUDE_API_KEY:}   # env only — never commit
-  frontend:
-    source-dir: /abs/path/to/frontend/src        # enables the schema-risk agent's frontend grep
 ```
+
+> **Isolation note:** Using Ollama keeps all data fully local. Configuring the Claude provider sends prompts (including schema names, endpoint paths, and query questions) to Anthropic's API. Choose accordingly for sensitive environments.
+
+---
+
+## Real-Time WebSocket
+
+ContractSentinel pushes events to connected browser clients over WebSocket at `ws://localhost:8090/ws`. The frontend connects automatically on load and receives:
+
+- **Drift detected** — new breaking or safe change found during a poll
+- **Agent run update** — step appended or run completed
+
+This means the dashboard updates live without the user refreshing, and the agent run panel streams steps as they happen without explicit polling (the frontend falls back to 1.5s polling when WebSocket is unavailable).
 
 ---
 
@@ -615,6 +718,7 @@ sentinel:
 - Use a connection pool (`spring.datasource.hikari.*`) sized for your load
 - The poller runs on a single thread per service — for 50+ services consider increasing `poll.interval-ms`
 - All outbound HTTP calls (spec fetching, actuator polling, response sampling) go through a tracked `RestTemplate` — the UI shows the total call count in the nav bar
+- The NL query LLM call is synchronous on the request thread; for high query volume, front it with a queue or increase the async executor pool size
 
 ---
 
