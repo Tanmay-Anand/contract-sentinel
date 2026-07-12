@@ -33,7 +33,7 @@ public class AgentLoop {
     private final AgentRunStore store;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    @Async("agentExecutor")
+    @Async("agentTaskExecutor")
     public void run(UUID runId, String systemPrompt, String userPrompt, List<AgentTool> tools) {
         Map<String, AgentTool> byName = tools.stream()
                 .collect(Collectors.toMap(AgentTool::name, Function.identity(), (a, b) -> a));

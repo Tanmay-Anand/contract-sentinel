@@ -175,6 +175,8 @@ export interface LatencyMetricDto {
   p99Ms: number | null
   requestCount: number | null
   source: string
+  dominantEndpointMethod: string | null
+  dominantEndpointPath: string | null
 }
 
 // Usage

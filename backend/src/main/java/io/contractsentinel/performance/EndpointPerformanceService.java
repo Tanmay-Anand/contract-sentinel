@@ -7,8 +7,11 @@ import java.util.UUID;
 
 public interface EndpointPerformanceService {
 
+    record CollectionResult(Double serviceMaxP95Ms, Double serviceMaxP50Ms,
+                            String dominantMethod, String dominantPath) {}
+
     /** Scrape the service's Prometheus endpoint and persist one snapshot per observed endpoint. */
-    void collectForService(ServiceRegistry service);
+    CollectionResult collectForService(ServiceRegistry service);
 
     /** Latest reading per endpoint (optionally filtered), enriched with ranking/volatility/sparkline. */
     List<EndpointPerformanceRow> registry(UUID serviceId, String method, String query);

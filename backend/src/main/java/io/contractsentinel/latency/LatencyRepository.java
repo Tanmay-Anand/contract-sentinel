@@ -10,6 +10,8 @@ import java.util.UUID;
 
 public interface LatencyRepository extends JpaRepository<LatencyMetric, UUID> {
 
+    java.util.Optional<LatencyMetric> findTopByServiceOrderByRecordedAtDesc(ServiceRegistry service);
+
     List<LatencyMetric> findByServiceOrderByRecordedAtDesc(ServiceRegistry service, Pageable pageable);
 
     List<LatencyMetric> findByServiceAndRecordedAtBetweenOrderByRecordedAt(ServiceRegistry service, Instant from, Instant to);

@@ -21,4 +21,16 @@ public class ProfilingConfig {
         executor.initialize();
         return executor;
     }
+
+    @Bean(name = "traceDbExecutor")
+    public Executor traceDbExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(4);
+        executor.setQueueCapacity(500);
+        executor.setThreadNamePrefix("trace-db-");
+        executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
+        executor.initialize();
+        return executor;
+    }
 }
