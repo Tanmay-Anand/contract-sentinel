@@ -11,5 +11,9 @@ public interface LatencyService {
 
     void collectFromActuator(ServiceRegistry service);
 
+    /** Enrich the most-recent LatencyMetric for this service with Prometheus-derived percentiles and dominant endpoint. */
+    void updateLatestWithPrometheusData(ServiceRegistry service, Double p95Ms, Double p50Ms,
+                                        String dominantMethod, String dominantPath);
+
     List<LatencyMetricDto> getTimeSeries(UUID serviceId, int limitPoints);
 }

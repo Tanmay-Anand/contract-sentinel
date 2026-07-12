@@ -12,7 +12,9 @@ public record LatencyMetricDto(
         Double p95Ms,
         Double p99Ms,
         Long requestCount,
-        String source
+        String source,
+        String dominantEndpointMethod,
+        String dominantEndpointPath
 ) {
     public static LatencyMetricDto from(LatencyMetric m) {
         return new LatencyMetricDto(
@@ -24,7 +26,9 @@ public record LatencyMetricDto(
                 m.getP95Ms(),
                 m.getP99Ms(),
                 m.getRequestCount(),
-                m.getSource().name()
+                m.getSource().name(),
+                m.getDominantEndpointMethod(),
+                m.getDominantEndpointPath()
         );
     }
 }

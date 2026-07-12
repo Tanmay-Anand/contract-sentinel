@@ -138,7 +138,13 @@ public class SpecFetcherScheduler {
             dependencyGraphService.scanDependencies(service);
             outboundCallScannerService.scanAndEnrich(service);
             try {
-                endpointPerformanceService.collectForService(service);
+                io.contractsentinel.performance.EndpointPerformanceService.CollectionResult perf =
+                        endpointPerformanceService.collectForService(service);
+                if (perf != null) {
+                    latencyService.updateLatestWithPrometheusData(
+                            service, perf.serviceMaxP95Ms(), perf.serviceMaxP50Ms(),
+                            perf.dominantMethod(), perf.dominantPath());
+                }
             } catch (Exception e) {
                 log.warn("Performance collection failed for {}: {}", service.getName(), e.getMessage());
             }

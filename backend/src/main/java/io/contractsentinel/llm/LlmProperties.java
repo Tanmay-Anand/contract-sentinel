@@ -5,20 +5,21 @@ import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
-/** Configuration for the pluggable LLM backend (Ollama by default, Claude opt-in). */
+/** Configuration for the pluggable LLM backend (Ollama by default, Claude or Groq opt-in). */
 @Component
 @ConfigurationProperties(prefix = "sentinel.llm")
 @Getter
 @Setter
 public class LlmProperties {
 
-    /** {@code ollama} or {@code claude}. */
+    /** {@code ollama}, {@code claude}, or {@code groq}. */
     private String provider = "ollama";
     private int maxIterations = 10;
     private int requestTimeoutSeconds = 120;
 
     private Ollama ollama = new Ollama();
     private Claude claude = new Claude();
+    private Groq groq = new Groq();
 
     @Getter
     @Setter
@@ -36,6 +37,16 @@ public class LlmProperties {
         private String model = "claude-sonnet-4-5";
         private int maxTokens = 2048;
         /** Env: SENTINEL_LLM_CLAUDE_API_KEY. Never commit a real key. */
+        private String apiKey = "";
+    }
+
+    @Getter
+    @Setter
+    public static class Groq {
+        private String baseUrl = "https://api.groq.com/openai";
+        private String model = "llama-3.3-70b-versatile";
+        private int maxTokens = 2048;
+        /** Env: SENTINEL_LLM_GROQ_API_KEY. Never commit a real key. */
         private String apiKey = "";
     }
 }

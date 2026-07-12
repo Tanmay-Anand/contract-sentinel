@@ -42,7 +42,7 @@ public class EndpointPerformanceServiceImpl implements EndpointPerformanceServic
 
     @Override
     @Transactional
-    public void collectForService(ServiceRegistry service) {
+    public EndpointPerformanceService.CollectionResult collectForService(ServiceRegistry service) {
         String url = service.getBaseUrl() + contextPathFrom(service.getSpecPath()) + "/actuator/prometheus";
         List<ParsedEndpointMetric> metrics;
         try {
@@ -51,7 +51,7 @@ public class EndpointPerformanceServiceImpl implements EndpointPerformanceServic
             metrics = HttpServerMetricsParser.parse(body);
         } catch (Exception e) {
             log.warn("Failed to scrape prometheus metrics from {}: {}", url, e.getMessage());
-            return;
+            return null;
         }
 
         for (ParsedEndpointMetric m : metrics) {
@@ -79,6 +79,23 @@ public class EndpointPerformanceServiceImpl implements EndpointPerformanceServic
             }
         }
         log.debug("Collected {} endpoint performance snapshots for {}", metrics.size(), service.getName());
+
+        ParsedEndpointMetric dominant = metrics.stream()
+                .filter(m -> m.p95Ms() != null)
+                .max(Comparator.comparingDouble(ParsedEndpointMetric::p95Ms))
+                .orElse(null);
+
+        if (dominant == null) return null;
+
+        double serviceMaxP95 = dominant.p95Ms();
+        double serviceMaxP50 = metrics.stream()
+                .filter(m -> m.p50Ms() != null)
+                .mapToDouble(ParsedEndpointMetric::p50Ms)
+                .average()
+                .orElse(serviceMaxP95);
+
+        return new EndpointPerformanceService.CollectionResult(
+                serviceMaxP95, serviceMaxP50, dominant.method(), dominant.uri());
     }
 
     @Override

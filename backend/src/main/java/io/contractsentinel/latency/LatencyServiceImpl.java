@@ -109,6 +109,19 @@ public class LatencyServiceImpl implements LatencyService {
     }
 
     @Override
+    @Transactional
+    public void updateLatestWithPrometheusData(ServiceRegistry service, Double p95Ms, Double p50Ms,
+                                               String dominantMethod, String dominantPath) {
+        latencyRepository.findTopByServiceOrderByRecordedAtDesc(service).ifPresent(m -> {
+            m.setP95Ms(p95Ms);
+            m.setP50Ms(p50Ms);
+            m.setDominantEndpointMethod(dominantMethod);
+            m.setDominantEndpointPath(dominantPath);
+            latencyRepository.save(m);
+        });
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public List<LatencyMetricDto> getTimeSeries(UUID serviceId, int limitPoints) {
         ServiceRegistry service = serviceRegistryRepository.findById(serviceId)

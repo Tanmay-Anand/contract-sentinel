@@ -43,6 +43,13 @@ public class LatencyMetric {
     @Column(nullable = true)
     private Long requestCount;
 
+    /** The endpoint with the highest P95 at this scrape cycle, populated from Prometheus data. */
+    @Column(nullable = true, length = 20)
+    private String dominantEndpointMethod;
+
+    @Column(nullable = true, length = 500)
+    private String dominantEndpointPath;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private Source source;

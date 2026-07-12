@@ -1,4 +1,4 @@
-import { useEffect } from "react"
+import { useEffect, useRef, useState } from "react"
 import { X } from "lucide-react"
 
 interface SlideOverProps {
@@ -10,16 +10,48 @@ interface SlideOverProps {
   children: React.ReactNode
 }
 
-/** A right-anchored slide-over panel with a backdrop. No external dependency. */
-export function SlideOver({ open, title, subtitle, onClose, width = 480, children }: SlideOverProps) {
+const MIN_WIDTH = 360
+const MAX_WIDTH = window.innerWidth * 0.9
+
+/** A right-anchored slide-over panel with a backdrop and a draggable left edge. */
+export function SlideOver({ open, title, subtitle, onClose, width: initialWidth = 480, children }: SlideOverProps) {
+  const [width, setWidth] = useState(initialWidth)
+  const dragging = useRef(false)
+  const startX = useRef(0)
+  const startW = useRef(0)
+
   useEffect(() => {
     if (!open) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose()
-    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose() }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
   }, [open, onClose])
+
+  // Reset width when panel opens with a new initialWidth
+  useEffect(() => { if (open) setWidth(initialWidth) }, [open, initialWidth])
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!dragging.current) return
+      const delta = startX.current - e.clientX
+      setWidth(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startW.current + delta)))
+    }
+    const onUp = () => { dragging.current = false; document.body.style.cursor = "" }
+    window.addEventListener("mousemove", onMove)
+    window.addEventListener("mouseup", onUp)
+    return () => {
+      window.removeEventListener("mousemove", onMove)
+      window.removeEventListener("mouseup", onUp)
+    }
+  }, [])
+
+  const onDragStart = (e: React.MouseEvent) => {
+    e.preventDefault()
+    dragging.current = true
+    startX.current = e.clientX
+    startW.current = width
+    document.body.style.cursor = "ew-resize"
+  }
 
   if (!open) return null
 
@@ -44,6 +76,35 @@ export function SlideOver({ open, title, subtitle, onClose, width = 480, childre
           flexDirection: "column",
         }}
       >
+        {/* Drag handle */}
+        <div
+          onMouseDown={onDragStart}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: -4,
+            width: 8,
+            height: "100%",
+            cursor: "ew-resize",
+            zIndex: 10,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <div
+            style={{
+              width: 3,
+              height: 40,
+              borderRadius: 2,
+              background: "var(--color-border)",
+              transition: "background 0.15s",
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = "var(--color-primary)")}
+            onMouseLeave={e => (e.currentTarget.style.background = "var(--color-border)")}
+          />
+        </div>
+
         <div
           className="flex items-start justify-between px-5 py-4 border-b"
           style={{ borderColor: "var(--color-border)" }}

@@ -1,4 +1,5 @@
-import { Loader2, Wrench, MessageSquare, CheckCircle2, XCircle } from "lucide-react"
+import { useState } from "react"
+import { Loader2, Wrench, MessageSquare, CheckCircle2, XCircle, ChevronDown, ChevronRight } from "lucide-react"
 import { SlideOver } from "./slide-over"
 import { MiniMarkdown } from "./mini-markdown"
 import { useAgentRun } from "../hooks/use-agent-run"
@@ -14,36 +15,132 @@ interface Props {
 export function AgentRunPanel({ runId, open, onClose, title }: Props) {
   const { data: run } = useAgentRun(open ? runId : null)
   const running = run?.status === "RUNNING"
+  const [stepsOpen, setStepsOpen] = useState(false)
+
+  const toolCallCount = run?.steps.filter(s => s.type === "tool_call").length ?? 0
 
   return (
-    <SlideOver open={open} title={title} subtitle={run?.llmProvider ?? undefined} onClose={onClose} width={560}>
-      {!run && <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>Starting…</p>}
+    <SlideOver open={open} title={title} subtitle={run?.llmProvider ?? undefined} onClose={onClose} width={580}>
+      {!run && (
+        <div className="flex items-center gap-2 text-sm" style={{ color: "var(--color-text-secondary)" }}>
+          <Loader2 className="w-4 h-4 animate-spin" />
+          Startingâ€¦
+        </div>
+      )}
 
       {run && (
-        <div className="space-y-4">
-          <div className="flex items-center gap-2 text-xs">
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+          {/* Status row */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <StatusChip status={run.status} />
-            <span style={{ color: "var(--color-text-secondary)" }}>{run.iterations} iteration{run.iterations !== 1 ? "s" : ""}</span>
+            <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
+              {run.iterations} iteration{run.iterations !== 1 ? "s" : ""}
+              {toolCallCount > 0 && ` Â· ${toolCallCount} tool call${toolCallCount !== 1 ? "s" : ""}`}
+            </span>
           </div>
 
-          <div className="space-y-2">
-            {run.steps.map((step) => <StepRow key={step.seq} step={step} />)}
-            {running && (
-              <div className="flex items-center gap-2 text-xs" style={{ color: "var(--color-text-secondary)" }}>
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                Thinking…
-              </div>
-            )}
-          </div>
+          {/* Steps â€” collapsible once complete, always expanded while running */}
+          {run.steps.length > 0 && (
+            <div style={{
+              borderRadius: 8,
+              border: "1px solid var(--color-border)",
+              overflow: "hidden",
+            }}>
+              <button
+                onClick={() => setStepsOpen(v => !v)}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "8px 12px",
+                  background: "var(--color-surface-muted)",
+                  border: "none",
+                  cursor: "pointer",
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: "var(--color-text-secondary)",
+                  gap: 6,
+                }}
+              >
+                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  {running
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color: "var(--color-primary)" }} />
+                    : <CheckCircle2 className="w-3.5 h-3.5" style={{ color: "var(--color-healthy)" }} />}
+                  {running ? "Runningâ€¦" : "Trace"}
+                  <span style={{
+                    background: "var(--color-background)",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: 10,
+                    padding: "0 6px",
+                    fontSize: 11,
+                  }}>
+                    {run.steps.length} step{run.steps.length !== 1 ? "s" : ""}
+                  </span>
+                </span>
+                {(stepsOpen || running)
+                  ? <ChevronDown className="w-3.5 h-3.5" />
+                  : <ChevronRight className="w-3.5 h-3.5" />}
+              </button>
 
-          {run.status === "COMPLETE" && run.resultMarkdown && (
-            <div className="rounded-lg border p-3" style={{ borderColor: "var(--color-border)", background: "var(--color-surface-muted)" }}>
-              <MiniMarkdown text={run.resultMarkdown} />
+              {(stepsOpen || running) && (
+                <div style={{ padding: "8px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+                  {run.steps.map((step) => <StepRow key={step.seq} step={step} />)}
+                  {running && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--color-text-secondary)" }}>
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Thinkingâ€¦
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
+
+          {/* Result */}
+          {run.status === "COMPLETE" && run.resultMarkdown && (
+            <div style={{
+              borderRadius: 8,
+              border: "1px solid var(--color-border)",
+              overflow: "hidden",
+            }}>
+              <div style={{
+                padding: "7px 12px",
+                background: "var(--color-surface-muted)",
+                borderBottom: "1px solid var(--color-border)",
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: "0.05em",
+                textTransform: "uppercase",
+                color: "var(--color-text-secondary)",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}>
+                <CheckCircle2 className="w-3.5 h-3.5" style={{ color: "var(--color-healthy)" }} />
+                Diagnosis
+              </div>
+              <div style={{ padding: "14px 16px" }}>
+                <MiniMarkdown text={run.resultMarkdown} />
+              </div>
+            </div>
+          )}
+
           {run.status === "FAILED" && (
-            <div className="rounded-lg border p-3 text-sm" style={{ borderColor: "var(--color-breaking-border)", background: "var(--color-breaking-bg)", color: "var(--color-breaking)" }}>
-              {run.resultMarkdown ?? "Agent failed."}
+            <div style={{
+              borderRadius: 8,
+              border: "1px solid var(--color-breaking-border)",
+              background: "var(--color-breaking-bg)",
+              padding: "12px 14px",
+              fontSize: 13,
+              color: "var(--color-breaking)",
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 8,
+            }}>
+              <XCircle className="w-4 h-4 shrink-0" style={{ marginTop: 1 }} />
+              <span>{run.resultMarkdown ?? "Agent failed."}</span>
             </div>
           )}
         </div>
@@ -53,21 +150,46 @@ export function AgentRunPanel({ runId, open, onClose, title }: Props) {
 }
 
 function StepRow({ step }: { step: AgentStep }) {
-  const icon = step.type === "tool_call"
-    ? <Wrench className="w-3.5 h-3.5" />
-    : step.type === "tool_result"
-      ? <CheckCircle2 className="w-3.5 h-3.5" />
-      : <MessageSquare className="w-3.5 h-3.5" />
-  const color = step.type === "tool_result" ? "var(--color-healthy)" : "var(--color-text-secondary)"
+  const isToolCall = step.type === "tool_call"
+  const isToolResult = step.type === "tool_result"
 
   return (
-    <div className="flex gap-2 text-xs">
-      <span style={{ color, marginTop: 2 }}>{icon}</span>
-      <div className="min-w-0 flex-1">
-        {step.name && <span className="font-mono font-medium" style={{ color: "var(--color-text-primary)" }}>{step.name}</span>}
+    <div style={{ display: "flex", gap: 8, fontSize: 12, alignItems: "flex-start" }}>
+      <span style={{
+        marginTop: 2,
+        color: isToolResult ? "var(--color-healthy)" : isToolCall ? "var(--color-primary)" : "var(--color-text-secondary)",
+        flexShrink: 0,
+      }}>
+        {isToolCall
+          ? <Wrench className="w-3.5 h-3.5" />
+          : isToolResult
+            ? <CheckCircle2 className="w-3.5 h-3.5" />
+            : <MessageSquare className="w-3.5 h-3.5" />}
+      </span>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        {step.name && (
+          <span style={{
+            fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+            fontWeight: 500,
+            color: "var(--color-text-primary)",
+            background: "var(--color-background)",
+            border: "1px solid var(--color-border)",
+            borderRadius: 4,
+            padding: "0 5px",
+            fontSize: 11,
+          }}>
+            {step.name}
+          </span>
+        )}
         {step.summary && (
-          <div className="truncate" style={{ color: "var(--color-text-secondary)" }} title={step.summary}>
-            {step.type === "tool_result" ? "→ " : ""}{step.summary.slice(0, 200)}
+          <div style={{
+            marginTop: step.name ? 2 : 0,
+            color: "var(--color-text-secondary)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }} title={step.summary}>
+            {isToolResult ? "â†’ " : ""}{step.summary.slice(0, 200)}
           </div>
         )}
       </div>
@@ -83,7 +205,17 @@ function StatusChip({ status }: { status: string }) {
   }
   const s = map[status] ?? map.RUNNING
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium" style={{ background: s.bg, color: s.fg }}>
+    <span style={{
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 4,
+      padding: "2px 8px",
+      borderRadius: 99,
+      fontWeight: 500,
+      fontSize: 12,
+      background: s.bg,
+      color: s.fg,
+    }}>
       {s.icon}
       {status}
     </span>

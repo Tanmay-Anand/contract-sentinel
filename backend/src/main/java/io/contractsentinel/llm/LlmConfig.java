@@ -14,6 +14,7 @@ public class LlmConfig {
         log.info("Configuring LLM client for provider '{}'", provider);
         return switch (provider) {
             case "claude", "anthropic" -> new ClaudeClient(properties);
+            case "groq" -> new GroqClient(properties);
             default -> new OllamaClient(properties);
         };
     }
