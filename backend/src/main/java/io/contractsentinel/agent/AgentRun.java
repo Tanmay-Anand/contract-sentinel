@@ -41,6 +41,9 @@ public class AgentRun {
     @Column(columnDefinition = "text")
     private String resultMarkdown;
 
+    @Column(columnDefinition = "text")
+    private String provenanceJson;
+
     @Column(length = 80)
     private String llmProvider;
 
@@ -53,7 +56,7 @@ public class AgentRun {
 
     private Instant completedAt;
 
-    public enum AgentType { DIAGNOSE, SCHEMA_RISK }
+    public enum AgentType { DIAGNOSE, SCHEMA_RISK, DIAGNOSE_STRUCTURED }
 
     public enum Status { RUNNING, COMPLETE, FAILED }
 }

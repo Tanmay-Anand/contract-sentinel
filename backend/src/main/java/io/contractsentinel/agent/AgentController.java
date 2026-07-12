@@ -17,6 +17,7 @@ import java.util.UUID;
 public class AgentController {
 
     private final DiagnosisAgent diagnosisAgent;
+    private final DiagnosisOrchestrator diagnosisOrchestrator;
     private final SchemaRiskAgent schemaRiskAgent;
     private final AgentRunStore store;
 
@@ -25,6 +26,14 @@ public class AgentController {
     @Operation(summary = "Start a performance-diagnosis agent run for an endpoint")
     public AgentRunDto diagnose(@Valid @RequestBody DiagnoseRequest request) {
         UUID runId = diagnosisAgent.diagnose(request.serviceId(), request.method(), request.path(), request.mode());
+        return store.get(runId);
+    }
+
+    @PostMapping("/diagnose-structured")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    @Operation(summary = "Start a deterministic diagnosis (state machine); LLM only used for final narration")
+    public AgentRunDto diagnoseStructured(@Valid @RequestBody DiagnoseRequest request) {
+        UUID runId = diagnosisOrchestrator.diagnose(request.serviceId(), request.method(), request.path());
         return store.get(runId);
     }
 

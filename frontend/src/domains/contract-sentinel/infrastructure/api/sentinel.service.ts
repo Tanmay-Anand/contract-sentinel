@@ -35,6 +35,10 @@ import type {
   TraceSummaryDto,
   TraceTreeDto,
   AgentRunDto,
+  SynonymDto,
+  MetricDto,
+  ServiceKnowledgeSummaryDto,
+  NlQueryResponse,
 } from "./types"
 
 const BASE_URL = (import.meta.env["VITE_SENTINEL_API_URL"] as string | undefined) ?? "http://localhost:8090"
@@ -53,7 +57,7 @@ async function request<T>(path: string, init?: RequestInit, opts?: { silent?: bo
       if (json.message) message = json.message
     } catch { /* use status message */ }
     // `silent` calls (e.g. a shared-DB schema fetch for a service that isn't running)
-    // fail quietly — the caller shows its own empty state instead of a red toast.
+    // fail quietly â€” the caller shows its own empty state instead of a red toast.
     if (!opts?.silent) toast.error(message)
     throw new Error(message)
   }
@@ -209,14 +213,6 @@ export const sentinelService = {
     get: (traceId: string) => request<TraceTreeDto>(`/api/traces/${traceId}`),
   },
 
-  agents: {
-    diagnose: (body: { serviceId: string; method: string; path: string; mode?: string }) =>
-      request<AgentRunDto>("/api/agents/diagnose", { method: "POST", body: JSON.stringify(body) }),
-    schemaRisk: (migrationSql: string) =>
-      request<AgentRunDto>("/api/agents/schema-risk", { method: "POST", body: JSON.stringify({ migrationSql }) }),
-    getRun: (runId: string) => request<AgentRunDto>(`/api/agents/runs/${runId}`),
-  },
-
   infrastructure: {
     containers: () => request<ContainerDto[]>("/api/infrastructure/containers"),
     gatewayHealth: () => request<GatewayHealthDto[]>("/api/infrastructure/gateway-health"),
@@ -251,5 +247,48 @@ export const sentinelService = {
         method: "POST",
         body: JSON.stringify({ serviceId, sql }),
       }),
+    nlQuery: (serviceId: string, question: string) =>
+      request<NlQueryResponse>("/api/db/nl-query", {
+        method: "POST",
+        body: JSON.stringify({ serviceId, question }),
+      }),
+  },
+
+  agents: {
+    diagnose: (body: { serviceId: string; method: string; path: string; mode?: string }) =>
+      request<AgentRunDto>("/api/agents/diagnose", { method: "POST", body: JSON.stringify(body) }),
+    diagnoseStructured: (body: { serviceId: string; method: string; path: string }) =>
+      request<AgentRunDto>("/api/agents/diagnose-structured", { method: "POST", body: JSON.stringify(body) }),
+    schemaRisk: (migrationSql: string) =>
+      request<AgentRunDto>("/api/agents/schema-risk", { method: "POST", body: JSON.stringify({ migrationSql }) }),
+    getRun: (runId: string) => request<AgentRunDto>(`/api/agents/runs/${runId}`),
+  },
+
+  knowledge: {
+    graph: () => request<ServiceKnowledgeSummaryDto[]>("/api/knowledge/graph"),
+    synonyms: (params: { approved?: boolean; serviceName?: string } = {}) => {
+      const q = new URLSearchParams()
+      if (params.approved != null) q.set("approved", String(params.approved))
+      if (params.serviceName) q.set("serviceName", params.serviceName)
+      return request<SynonymDto[]>(`/api/knowledge/synonyms?${q}`)
+    },
+    approveSynonym: (id: string) =>
+      request<SynonymDto>(`/api/knowledge/synonyms/${id}/approve`, { method: "POST" }),
+    deleteSynonym: (id: string) =>
+      request<void>(`/api/knowledge/synonyms/${id}`, { method: "DELETE" }),
+    proposeSynonyms: (serviceId: string) =>
+      request<SynonymDto[]>(`/api/knowledge/synonyms/propose/${serviceId}`, { method: "POST" }),
+    metrics: (params: { approved?: boolean; serviceName?: string } = {}) => {
+      const q = new URLSearchParams()
+      if (params.approved != null) q.set("approved", String(params.approved))
+      if (params.serviceName) q.set("serviceName", params.serviceName)
+      return request<MetricDto[]>(`/api/knowledge/metrics?${q}`)
+    },
+    approveMetric: (id: string) =>
+      request<MetricDto>(`/api/knowledge/metrics/${id}/approve`, { method: "POST" }),
+    deleteMetric: (id: string) =>
+      request<void>(`/api/knowledge/metrics/${id}`, { method: "DELETE" }),
+    proposeMetrics: (serviceId: string) =>
+      request<MetricDto[]>(`/api/knowledge/metrics/propose/${serviceId}`, { method: "POST" }),
   },
 }
