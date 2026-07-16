@@ -51,11 +51,11 @@ Contract Sentinel is a single Spring Boot 4.0 application. All subsystems run in
 ```mermaid
 flowchart TB
     subgraph CRM["Monitored CRM Services"]
-        PS["crm-post-sales-api :8081\nContractSentinelFilter"]
-        PR["crm-pre-sales-api :8082\nContractSentinelFilter"]
-        PSR["crm-post-sales-reports-api :8083\nContractSentinelFilter"]
-        PRR["crm-pre-sales-reports-api :8084\nContractSentinelFilter"]
-        PL["crm-platform-api :8085\nContractSentinelFilter"]
+        PS["service-a :8081\nContractSentinelFilter"]
+        PR["service-b :8082\nContractSentinelFilter"]
+        PSR["service-c :8083\nContractSentinelFilter"]
+        PRR["service-d :8084\nContractSentinelFilter"]
+        PL["service-e :8085\nContractSentinelFilter"]
     end
 
     subgraph CS["Contract Sentinel  :8090  (single Spring Boot process)"]
