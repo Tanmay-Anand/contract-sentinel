@@ -1,4 +1,4 @@
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { useEventSubscription } from "../hooks/use-event-subscription"
@@ -6,8 +6,8 @@ import {
   RefreshCw, ShieldCheck, CheckCircle2, WifiOff, AlertTriangle,
   TrendingUp, Activity, Waypoints, GitCompare,
 } from "lucide-react"
-import { ResponsiveContainer, AreaChart, Area, Tooltip } from "recharts"
-import type { DriftEventDto, SamplingResultDto, ServiceDto, TraceSummaryDto } from "../../infrastructure/api/types"
+import { ResponsiveContainer, AreaChart, Area, Tooltip, ReferenceLine } from "recharts"
+import type { DriftEventDto, EndpointPerformanceRow, SamplingResultDto, ServiceDto, TraceSummaryDto } from "../../infrastructure/api/types"
 import { MethodBadge } from "../components/method-badge"
 import { useServices, usePollAll } from "../hooks/use-services"
 import { useLatency } from "../hooks/use-latency"
@@ -16,7 +16,7 @@ import { usePerformanceRegistry } from "../hooks/use-performance"
 import { sentinelService } from "../../infrastructure/api/sentinel.service"
 import { DRIFT_KEYS } from "../hooks/use-drift"
 
-// â”€â”€ Health score computation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Health score computation ──────────────────────────────────────────────────
 function computeHealthScore(service: ServiceDto, allEvents: DriftEventDto[]): number {
   let score = 100
   score -= Math.min(service.breakingDriftCount * 20, 60)
@@ -34,7 +34,7 @@ function scoreColor(score: number): string {
   return "#ef4444"
 }
 
-// â”€â”€ Trace utilities (mirrored from traces-page) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Trace utilities (mirrored from traces-page) ───────────────────────────────
 function parseRootName(rootName: string | null): { method: string; path: string } | null {
   if (!rootName) return null
   const match = rootName.match(/^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+(.+)$/i)
@@ -55,7 +55,7 @@ const RATING_STYLE: Record<LatencyRating, { bg: string; color: string; label: st
   fast:    { bg: "#f0fdf4", color: "#16a34a", label: "Fast" },
   normal:  { bg: "#fffbeb", color: "#d97706", label: "Normal" },
   slow:    { bg: "#fef2f2", color: "#dc2626", label: "Slow" },
-  unknown: { bg: "var(--color-background)", color: "var(--color-text-secondary)", label: "â€”" },
+  unknown: { bg: "var(--color-background)", color: "var(--color-text-secondary)", label: "—" },
 }
 
 const NOISE_PREFIXES = ["/v3/api-docs", "/swagger-ui", "/swagger-resources", "/webjars", "/scalar", "/actuator"]
@@ -66,7 +66,7 @@ function isUserTrace(t: TraceSummaryDto): boolean {
   return !NOISE_PREFIXES.some(p => parsed.path.startsWith(p))
 }
 
-// â”€â”€ Time formatting â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Time formatting ───────────────────────────────────────────────────────────
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime()
   const m = Math.floor(diff / 60_000)
@@ -77,7 +77,7 @@ function timeAgo(iso: string): string {
   return `${Math.floor(h / 24)}d ago`
 }
 
-// â”€â”€ Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Page ─────────────────────────────────────────────────────────────────────
 export default function OverviewPage() {
   const queryClient = useQueryClient()
   const { data: services, isLoading, isError } = useServices()
@@ -89,7 +89,7 @@ export default function OverviewPage() {
     enabled: !!services,
   })
 
-  // Live push invalidation â€” WebSocket events replace most polling.
+  // Live push invalidation — WebSocket events replace most polling.
   useEventSubscription("drift.detected",      () => void queryClient.invalidateQueries({ queryKey: DRIFT_KEYS.all }))
   useEventSubscription("health.changed",      () => void queryClient.invalidateQueries({ queryKey: ["services"] }))
   useEventSubscription("deployment.detected", () => void queryClient.invalidateQueries({ queryKey: ["overview-deployments"] }))
@@ -170,25 +170,25 @@ export default function OverviewPage() {
 
       {isLoading && (
         <div className="text-center py-16" style={{ color: "var(--color-text-secondary)" }}>
-          Loading servicesâ€¦
+          Loading services…
         </div>
       )}
 
       {services && services.length > 0 && (
         <>
-          {/* Row 1 â€” Contract Health + Recent Traces */}
+          {/* Row 1 — Contract Health + Recent Traces */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <ContractHealthCard healthScores={healthScores} />
             <RecentTracesCard />
           </div>
 
-          {/* Row 2 â€” Session Summary + Service Latency */}
+          {/* Row 2 — Session Summary + Service Latency */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             <SessionSummaryCard services={services} allEvents={allEvents} />
             <ServiceLatencyCard services={services} />
           </div>
 
-          {/* Row 3 â€” Recent Contract Changes (full width) */}
+          {/* Row 3 — Recent Contract Changes (full width) */}
           <RecentContractChangesCard allEvents={allEvents} />
         </>
       )}
@@ -196,7 +196,7 @@ export default function OverviewPage() {
   )
 }
 
-// â”€â”€ Contract Health Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Contract Health Card ──────────────────────────────────────────────────────
 function ContractHealthCard({
   healthScores,
 }: {
@@ -211,7 +211,7 @@ function ContractHealthCard({
             Contract Health
           </h2>
           <p className="text-xs mt-0.5" style={{ color: "var(--color-text-secondary)" }}>
-            Score 0â€“100 per service. Worst first.
+            Score 0–100 per service. Worst first.
           </p>
         </div>
         <TrendingUp className="w-4 h-4 shrink-0 mt-0.5" style={{ color: "var(--color-text-secondary)" }} />
@@ -257,10 +257,10 @@ function ContractHealthCard({
         style={{ borderColor: "var(--color-border)" }}>
         <div className="flex items-center gap-4 text-xs" style={{ color: "var(--color-text-secondary)" }}>
           <span className="flex items-center gap-1">
-            <span className="inline-block w-2 h-2 rounded-full" style={{ background: "#16a34a" }} /> 80â€“100 clean
+            <span className="inline-block w-2 h-2 rounded-full" style={{ background: "#16a34a" }} /> 80–100 clean
           </span>
           <span className="flex items-center gap-1">
-            <span className="inline-block w-2 h-2 rounded-full" style={{ background: "#f59e0b" }} /> 60â€“79 drifted
+            <span className="inline-block w-2 h-2 rounded-full" style={{ background: "#f59e0b" }} /> 60–79 drifted
           </span>
           <span className="flex items-center gap-1">
             <span className="inline-block w-2 h-2 rounded-full" style={{ background: "#ef4444" }} /> &lt;60 critical
@@ -268,14 +268,14 @@ function ContractHealthCard({
         </div>
         <Link to="/catalogue" className="text-xs font-medium hover:opacity-70 transition-opacity"
           style={{ color: "var(--color-primary)" }}>
-          View all â†’
+          View all →
         </Link>
       </div>
     </div>
   )
 }
 
-// â”€â”€ Recent Traces Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Recent Traces Card ────────────────────────────────────────────────────────
 function RecentTracesCard() {
   const queryClient = useQueryClient()
   const { data: traces } = useTraces({ sinceMinutes: 1440 })
@@ -306,7 +306,7 @@ function RecentTracesCard() {
             Recent Traces
           </h2>
           <p className="text-xs mt-0.5" style={{ color: "var(--color-text-secondary)" }}>
-            Live real user traffic Â· last 24 hours
+            Live real user traffic · last 24 hours
           </p>
         </div>
         <Waypoints className="w-4 h-4 shrink-0 mt-0.5" style={{ color: "var(--color-text-secondary)" }} />
@@ -333,7 +333,7 @@ function RecentTracesCard() {
                 style={{ background: "var(--color-surface-elevated, var(--color-background))" }}>
                 {parsed
                   ? <MethodBadge method={parsed.method} />
-                  : <span className="text-xs font-mono" style={{ color: "var(--color-text-secondary)" }}>â€”</span>}
+                  : <span className="text-xs font-mono" style={{ color: "var(--color-text-secondary)" }}>—</span>}
                 <span className="text-xs font-mono truncate flex-1" style={{ color: "var(--color-text-primary)" }}
                   title={parsed?.path}>
                   {parsed?.path ?? t.rootName}
@@ -359,15 +359,43 @@ function RecentTracesCard() {
         style={{ borderColor: "var(--color-border)" }}>
         <Link to="/traces" className="text-xs font-medium hover:opacity-70 transition-opacity"
           style={{ color: "var(--color-primary)" }}>
-          Traces â†’
+          Traces →
         </Link>
       </div>
     </div>
   )
 }
 
-// â”€â”€ Service Latency Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Service Latency Card ──────────────────────────────────────────────────────
 function ServiceLatencyCard({ services }: { services: ServiceDto[] }) {
+  const { data: perfRows = [] } = usePerformanceRegistry()
+
+  const perfByService = useMemo(() => {
+    const map = new Map<string, EndpointPerformanceRow[]>()
+    for (const r of perfRows) {
+      const list = map.get(r.serviceId) ?? []
+      list.push(r)
+      map.set(r.serviceId, list)
+    }
+    return map
+  }, [perfRows])
+
+  // Detect correlated spikes: 2+ reachable services with latest P95 > 1.35× their 7-day average
+  const correlatedSpike = useMemo(() => {
+    const spiking: string[] = []
+    for (const s of services) {
+      if (s.status === "UNREACHABLE" || s.status === "PARSE_FAILED") continue
+      const rows = perfByService.get(s.id) ?? []
+      if (rows.length === 0) continue
+      const latestP95 = Math.max(...rows.map(r => r.p95Ms ?? 0))
+      const allHistoric = rows.flatMap(r => r.p95Sparkline).filter(v => v > 0)
+      if (allHistoric.length < 5 || latestP95 === 0) continue
+      const avg = allHistoric.reduce((a, b) => a + b, 0) / allHistoric.length
+      if (latestP95 > avg * 1.35) spiking.push(s.name)
+    }
+    return spiking.length >= 2 ? spiking : null
+  }, [services, perfByService])
+
   return (
     <div className="rounded-xl border p-5 flex flex-col"
       style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}>
@@ -377,55 +405,148 @@ function ServiceLatencyCard({ services }: { services: ServiceDto[] }) {
             Service Latency
           </h2>
           <p className="text-xs mt-0.5" style={{ color: "var(--color-text-secondary)" }}>
-            P95 response time per service.
+            P50 / P95 response time per service.
           </p>
         </div>
         <Activity className="w-4 h-4 shrink-0 mt-0.5" style={{ color: "var(--color-text-secondary)" }} />
       </div>
-      <div className="flex flex-col gap-3 flex-1 overflow-y-auto">
-        {services.map(s => <ServiceLatencyRow key={s.id} service={s} />)}
+
+      {correlatedSpike && (
+        <div className="flex items-center gap-2 rounded-lg px-3 py-2 mb-3 text-xs font-medium"
+          style={{ background: "#fffbeb", color: "#b45309", border: "1px solid #fde68a" }}>
+          <span>⚠</span>
+          <span>
+            Correlated spike across{" "}
+            {correlatedSpike.map(n => n.replace("crm-", "").replace("-api", "")).join(", ")}
+            {" "}— possibly shared cause.
+          </span>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-3 flex-1">
+        {services.map(s => (
+          <ServiceLatencyRow key={s.id} service={s} perfRows={perfByService.get(s.id) ?? []} />
+        ))}
       </div>
     </div>
   )
 }
 
-// â”€â”€ Per-service latency row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-function ServiceLatencyRow({ service }: { service: ServiceDto }) {
+// ── Per-service latency row ───────────────────────────────────────────────────
+function ServiceLatencyRow({
+  service,
+  perfRows,
+}: {
+  service: ServiceDto
+  perfRows: EndpointPerformanceRow[]
+}) {
+  const [hovered, setHovered] = useState(false)
   const unreachable = service.status === "UNREACHABLE" || service.status === "PARSE_FAILED"
   const { data: metrics } = useLatency(service.id, 30)
 
   const series = useMemo(() => {
     return [...(metrics ?? [])]
-      .map(m => ({
-        v: m.p95Ms ?? m.p50Ms ?? m.specFetchMs ?? null,
-        t: m.recordedAt,
-      }))
-      .filter((p): p is { v: number; t: string } => p.v != null)
+      .map(m => {
+        // Treat 0.0 from DB as "no data" — falls through to next source
+        const p95 = (m.p95Ms ?? 0) > 0 ? m.p95Ms : null
+        const p50 = (m.p50Ms ?? 0) > 0 ? m.p50Ms : null
+        return {
+          v:         p95 ?? p50 ?? m.specFetchMs ?? null,
+          p95,
+          p50,
+          t:         m.recordedAt,
+          domMethod: m.dominantEndpointMethod ?? null,
+          domPath:   m.dominantEndpointPath ?? null,
+        }
+      })
+      .filter((p): p is { v: number; p95: number | null; p50: number | null; t: string; domMethod: string | null; domPath: string | null } => p.v != null)
       .reverse()
   }, [metrics])
 
-  const latest = series.length ? series[series.length - 1].v : null
-  const lineColor = unreachable ? "#ef4444" : "var(--color-primary)"
+  const latestP95 = series.at(-1)?.p95 ?? null
+  const latestP50 = series.at(-1)?.p50 ?? null
+  const prevP95   = series.length >= 2 ? (series.at(-2)!.p95 ?? series.at(-2)!.v) : null
+
+  // Trend: show if delta ≥5ms AND ≥10% relative change
+  const deltaMs  = latestP95 != null && prevP95 != null ? Math.round(latestP95 - prevP95) : null
+  const showDelta = deltaMs != null && prevP95 != null
+    && Math.abs(deltaMs) >= 5 && Math.abs(deltaMs / prevP95) >= 0.1
+
+  // Baseline = mean of all points except the latest (self-interpreting reference)
+  const baseline = series.length >= 3
+    ? series.slice(0, -1).reduce((sum, p) => sum + p.v, 0) / (series.length - 1)
+    : null
+
+  // Request rate: sum countDelta across endpoints / 5-min scrape interval
+  const reqPerMin = useMemo(() => {
+    const total = perfRows.reduce((sum, r) => sum + r.countDelta, 0)
+    return total > 0 ? Math.max(1, Math.round(total / 5)) : null
+  }, [perfRows])
+
+  // Top 3 endpoints by P95 for hover panel — exclude zero-latency entries (no real traffic)
+  const topEndpoints = useMemo(() => {
+    return [...perfRows]
+      .filter(r => (r.p95Ms ?? 0) > 0)
+      .sort((a, b) => (b.p95Ms ?? 0) - (a.p95Ms ?? 0))
+      .slice(0, 3)
+  }, [perfRows])
+
+  const isAboveBaseline = baseline != null && latestP95 != null && latestP95 > baseline * 1.2
+  const lineColor = unreachable ? "#ef4444" : isAboveBaseline ? "#f59e0b" : "var(--color-primary)"
   const gradientId = `lat-grad-${service.id}`
 
+  const latencyLabel = () => {
+    if (unreachable) return "unreachable"
+    const latestV = series.at(-1)?.v ?? null
+    if (latestV == null) return "—"
+    if (latestP95 != null) {
+      const p95 = `${Math.round(latestP95)} ms`
+      return latestP50 != null ? `${Math.round(latestP50)} / ${p95}` : p95
+    }
+    // Only specFetchMs available (no Prometheus data yet) — show what we have
+    return `${Math.round(latestV)} ms`
+  }
+
   return (
-    <div className="rounded-lg border p-3"
+    <div
+      className="rounded-lg border p-3"
       style={{
         background: "var(--color-surface-elevated, var(--color-surface))",
         borderColor: "var(--color-border)",
         opacity: unreachable ? 0.6 : 1,
-      }}>
-      <div className="flex items-center justify-between mb-1.5">
-        <span className="text-xs font-semibold truncate"
-          style={{ color: "var(--color-text-primary)", maxWidth: "68%" }}>
-          {service.name}
-        </span>
-        <span className="text-xs font-semibold tabular-nums"
-          style={{ color: unreachable ? "#ef4444" : "var(--color-primary)" }}>
-          {unreachable ? "unreachable" : latest != null ? `${Math.round(latest)} ms` : "â€”"}
-        </span>
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {/* Header: name + req/min + trend + P50/P95 */}
+      <div className="flex items-start justify-between mb-1">
+        <div className="min-w-0 flex-1 mr-2">
+          <span className="text-xs font-semibold truncate block"
+            style={{ color: "var(--color-text-primary)" }}>
+            {service.name}
+          </span>
+          {reqPerMin != null && (
+            <span className="text-[10px] block mt-0.5 tabular-nums"
+              style={{ color: "var(--color-text-secondary)" }}>
+              ~{reqPerMin} req/min
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {showDelta && (
+            <span className="text-[10px] font-semibold tabular-nums"
+              style={{ color: deltaMs! > 0 ? "#f59e0b" : "#16a34a" }}>
+              {deltaMs! > 0 ? "↑" : "↓"}{Math.abs(deltaMs!)}ms
+            </span>
+          )}
+          <span className="text-xs font-semibold tabular-nums"
+            style={{ color: unreachable ? "#ef4444" : isAboveBaseline ? "#f59e0b" : "var(--color-primary)" }}>
+            {latencyLabel()}
+          </span>
+        </div>
       </div>
 
+      {/* Sparkline with baseline reference line */}
       <div style={{ height: 38 }}>
         {unreachable ? (
           <div className="flex items-center" style={{ height: "100%" }}>
@@ -433,25 +554,54 @@ function ServiceLatencyRow({ service }: { service: ServiceDto }) {
           </div>
         ) : series.length >= 2 ? (
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={series} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
+            <AreaChart data={series} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
               <defs>
                 <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor={lineColor} stopOpacity={0.22} />
                   <stop offset="100%" stopColor={lineColor} stopOpacity={0} />
                 </linearGradient>
               </defs>
+              {baseline != null && (
+                <ReferenceLine
+                  y={baseline}
+                  stroke="#94a3b8"
+                  strokeDasharray="3 3"
+                  strokeWidth={1}
+                  ifOverflow="visible"
+                />
+              )}
               <Tooltip
                 content={({ active, payload }) => {
                   if (!active || !payload?.length) return null
-                  const pt = payload[0].payload as { v: number; t: string }
+                  const pt = payload[0].payload as { v: number; p95: number | null; p50: number | null; t: string; domMethod: string | null; domPath: string | null }
                   const time = new Date(pt.t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
                   return (
                     <div className="rounded-lg border px-2.5 py-1.5 text-xs shadow-lg"
-                      style={{ background: "var(--color-surface)", borderColor: "var(--color-border)", zIndex: 50 }}>
+                      style={{ background: "var(--color-surface)", borderColor: "var(--color-border)", zIndex: 50, minWidth: 160, maxWidth: 240 }}>
                       <div className="font-semibold tabular-nums" style={{ color: "var(--color-text-primary)" }}>
-                        {Math.round(pt.v)} ms
+                        {pt.p50 != null ? `${Math.round(pt.p50)} / ` : ""}
+                        {Math.round(pt.p95 ?? pt.v)} ms
                       </div>
-                      <div className="mt-0.5" style={{ color: "var(--color-text-secondary)" }}>{time}</div>
+                      {pt.domMethod && pt.domPath ? (
+                        <div className="mt-1 flex items-center gap-1.5">
+                          <span className="font-mono font-bold shrink-0" style={{ color: "var(--color-primary)", fontSize: 10 }}>
+                            {pt.domMethod}
+                          </span>
+                          <span className="font-mono truncate" style={{ color: "var(--color-text-secondary)", fontSize: 10 }} title={pt.domPath}>
+                            {pt.domPath}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="mt-1" style={{ color: "var(--color-text-secondary)", fontSize: 10 }}>
+                          spec fetch
+                        </div>
+                      )}
+                      {baseline != null && (
+                        <div className="mt-1 tabular-nums" style={{ color: "var(--color-text-secondary)", fontSize: 10 }}>
+                          baseline {Math.round(baseline)} ms
+                        </div>
+                      )}
+                      <div className="mt-0.5" style={{ color: "var(--color-text-secondary)", fontSize: 10 }}>{time}</div>
                     </div>
                   )
                 }}
@@ -467,11 +617,39 @@ function ServiceLatencyRow({ service }: { service: ServiceDto }) {
           </div>
         )}
       </div>
+
+      {/* Slowest endpoints — expands below chart on hover, no z-index conflicts */}
+      {hovered && topEndpoints.length > 0 && (
+        <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--color-border)" }}>
+          <div className="text-[10px] font-semibold mb-1.5 uppercase tracking-wide"
+            style={{ color: "var(--color-text-secondary)" }}>
+            Slowest endpoints
+          </div>
+          {topEndpoints.map(ep => (
+            <div key={`${ep.httpMethod}:${ep.path}`}
+              className="flex items-center gap-2 py-0.5">
+              <span className="text-[10px] font-mono font-bold w-10 shrink-0"
+                style={{ color: "var(--color-primary)" }}>
+                {ep.httpMethod}
+              </span>
+              <span className="text-[10px] font-mono truncate flex-1"
+                style={{ color: "var(--color-text-primary)" }}
+                title={ep.path}>
+                {ep.path}
+              </span>
+              <span className="text-[10px] font-semibold tabular-nums shrink-0"
+                style={{ color: "var(--color-text-primary)" }}>
+                {Math.round(ep.p95Ms!)} ms
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
 
-// â”€â”€ Session Summary card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Session Summary card ──────────────────────────────────────────────────────
 function SessionSummaryCard({ services, allEvents }: { services: ServiceDto[]; allEvents: DriftEventDto[] }) {
   const breakingCount = allEvents.filter(e => e.severity === "BREAKING").length
   const driftedCount  = new Set(
@@ -562,7 +740,7 @@ function SessionSummaryCard({ services, allEvents }: { services: ServiceDto[]; a
   )
 }
 
-// â”€â”€ Recent Contract Changes (full-width row 3) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Recent Contract Changes (full-width row 3) ────────────────────────────────
 function RecentContractChangesCard({ allEvents }: { allEvents: DriftEventDto[] }) {
   const recent = useMemo(() => {
     return [...allEvents]
@@ -579,14 +757,14 @@ function RecentContractChangesCard({ allEvents }: { allEvents: DriftEventDto[] }
             Recent Contract Changes
           </h2>
           <p className="text-xs mt-0.5" style={{ color: "var(--color-text-secondary)" }}>
-            All services Â· newest first
+            All services · newest first
           </p>
         </div>
         <div className="flex items-center gap-3">
           <GitCompare className="w-4 h-4" style={{ color: "var(--color-text-secondary)" }} />
           <Link to="/drift" className="text-xs font-medium hover:opacity-70 transition-opacity"
             style={{ color: "var(--color-primary)" }}>
-            Contract changes â†’
+            Contract changes →
           </Link>
         </div>
       </div>
@@ -645,7 +823,7 @@ function RecentContractChangesCard({ allEvents }: { allEvents: DriftEventDto[] }
   )
 }
 
-// â”€â”€ Small reusable pieces â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Small reusable pieces ─────────────────────────────────────────────────────
 function StatCard({ label, value, icon, iconBg, valueColor, accent }: {
   label: string; value: number; icon: React.ReactNode
   iconBg: string; valueColor?: string; accent?: string
