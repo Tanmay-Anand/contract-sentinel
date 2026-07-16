@@ -62,14 +62,17 @@ The problem you have right now: Suppose you have three services running. A field
 ## Architecture
 
 ```mermaid
-flowchart TB
-    subgraph Services["Your Microservices"]
+flowchart LR
+    subgraph SVC["Your Microservices"]
+        direction TB
         A["service-a :8080"]
         B["service-b :8081"]
         C["service-c :8082"]
     end
 
     subgraph CS["ContractSentinel Backend :8090"]
+        direction TB
+        API(["REST API\n/api/*"])
         POLL["Poll Scheduler\nevery 5 min"]
         SNAP["Snapshot Service\nSHA-256 dedup"]
         DRIFT["Drift Detector\noldest-baseline diff"]
@@ -80,36 +83,36 @@ flowchart TB
         AGENT["LLM Agent\nOllama / Claude"]
         WS["WebSocket\nreal-time push"]
         DB[("PostgreSQL\ncontract_sentinel")]
+
+        POLL --> SNAP --> DRIFT --> ALERT
+        POLL --> PERF
+        POLL --> GRAPH
+
+        DRIFT -->|"drift.detected"| WS
+        TRACE -->|"trace.received"| WS
+        SNAP  -->|"health.changed"| WS
+        PERF  -->|"metric.updated"| WS
+
+        SNAP  --> DB
+        DRIFT --> DB
+        PERF  --> DB
+        TRACE --> DB
+        GRAPH --> DB
+        ALERT --> DB
+
+        API --> AGENT
+        AGENT -->|"latency · usage"| PERF
+        AGENT -->|"row count · EXPLAIN · FK"| DB
     end
 
     subgraph UI["ContractSentinel UI :5173"]
         PAGES["Overview · Drift · Catalogue\nGraph · Performance · Traces\nKnowledge · Agents · Alerts"]
     end
 
-    Services -->|"GET /v3/api-docs\nevery 5 min"| POLL
-    POLL --> SNAP
-    SNAP --> DRIFT
-    DRIFT --> ALERT
-    POLL --> PERF
-    POLL --> GRAPH
-    Services -->|"POST /api/traces/zipkin\nContractSentinelFilter"| TRACE
-
-    SNAP --> DB
-    DRIFT --> DB
-    PERF --> DB
-    TRACE --> DB
-    GRAPH --> DB
-    ALERT --> DB
-
-    DRIFT -->|"drift.detected"| WS
-    TRACE -->|"trace.received"| WS
-    SNAP -->|"health.changed"| WS
-    PERF -->|"metric.updated"| WS
-
-    AGENT -->|"tool calls"| CS
-
-    WS -->|WebSocket| UI
-    UI -->|REST| CS
+    SVC -->|"GET /v3/api-docs\nevery 5 min"| POLL
+    SVC -->|"POST /api/traces/zipkin\nContractSentinelFilter"| TRACE
+    WS    -->|"WebSocket"| PAGES
+    PAGES -->|"REST queries"| API
 ```
 
 ### Drift Detection Algorithm
