@@ -61,23 +61,55 @@ The problem you have right now: Suppose you have three services running. A field
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────┐
-│  Your Microservices                      │
-│  service-a:8080/v3/api-docs              │
-│  service-b:8081/v3/api-docs  ──────────► │  ContractSentinel Backend (Spring Boot 4 / Java 21)
-│  service-c:8082/v3/api-docs              │  • Polls & snapshots every 5 min
-└──────────────────────────────────────────┘  • SHA-256 dedup
-                                              • OpenAPI diff engine (swagger-parser)
-                                              • Oldest-baseline drift detection
-                                              • REST API on :8090
-                                              • WebSocket on :8090/ws
-                                                     │
-                                                     ▼
-                                         ContractSentinel UI (React 19)
-                                         • TanStack Router + TanStack Query
-                                         • React Flow + ELK.js dependency graph
-                                         • Tailwind CSS v4 + Recharts
+```mermaid
+flowchart TB
+    subgraph Services["Your Microservices"]
+        A["service-a :8080"]
+        B["service-b :8081"]
+        C["service-c :8082"]
+    end
+
+    subgraph CS["ContractSentinel Backend :8090"]
+        POLL["Poll Scheduler\nevery 5 min"]
+        SNAP["Snapshot Service\nSHA-256 dedup"]
+        DRIFT["Drift Detector\noldest-baseline diff"]
+        PERF["Performance Scraper\np50 / p95 / p99"]
+        TRACE["Trace Ingest\nZipkin v2 JSON"]
+        GRAPH["Dependency Graph\nBFS blast-radius"]
+        ALERT["Alert Service\nWebhook · Slack · Email"]
+        AGENT["LLM Agent\nOllama / Claude"]
+        WS["WebSocket\nreal-time push"]
+        DB[("PostgreSQL\ncontract_sentinel")]
+    end
+
+    subgraph UI["ContractSentinel UI :5173"]
+        PAGES["Overview · Drift · Catalogue\nGraph · Performance · Traces\nKnowledge · Agents · Alerts"]
+    end
+
+    Services -->|"GET /v3/api-docs\nevery 5 min"| POLL
+    POLL --> SNAP
+    SNAP --> DRIFT
+    DRIFT --> ALERT
+    POLL --> PERF
+    POLL --> GRAPH
+    Services -->|"POST /api/traces/zipkin\nContractSentinelFilter"| TRACE
+
+    SNAP --> DB
+    DRIFT --> DB
+    PERF --> DB
+    TRACE --> DB
+    GRAPH --> DB
+    ALERT --> DB
+
+    DRIFT -->|"drift.detected"| WS
+    TRACE -->|"trace.received"| WS
+    SNAP -->|"health.changed"| WS
+    PERF -->|"metric.updated"| WS
+
+    AGENT -->|"tool calls"| CS
+
+    WS -->|WebSocket| UI
+    UI -->|REST| CS
 ```
 
 ### Drift Detection Algorithm
@@ -88,24 +120,18 @@ ContractSentinel uses **oldest-baseline detection** — every diff is computed a
 - A field that was added, removed, and re-added only shows as stable
 - Services that were never reachable cannot produce false drift events
 
-```
-Poll /v3/api-docs
-      │
-      ▼
-SHA-256 hash ──► same as last FETCHED snapshot? ──► skip (no change)
-      │
-      │ different
-      ▼
-Save snapshot (FETCHED status)
-      │
-      ▼
-Find oldest FETCHED snapshot for this service (baseline)
-      │
-      ▼
-Diff baseline ↔ current with swagger-parser
-      │
-      ▼
-Save DriftEvent records (BREAKING / SAFE), deduped by (service, changeType, method, path)
+```mermaid
+flowchart TD
+    POLL["GET /v3/api-docs"] --> HASH["SHA-256 hash response"]
+    HASH --> SAME{"Same as last\nFETCHED snapshot?"}
+    SAME -->|yes| SKIP["Skip — no change"]
+    SAME -->|no| SAVE["Save snapshot\nstatus: FETCHED"]
+    SAVE --> BASE["Find oldest FETCHED snapshot\nfor this service\n(the immutable baseline)"]
+    BASE --> DIFF["Diff baseline ↔ current\nvia swagger-parser\n(resolves all $ref pointers)"]
+    DIFF --> EVENTS["Save DriftEvent records\ndeduped by\n(service, changeType, method, path)"]
+    EVENTS --> SEV{"Severity?"}
+    SEV -->|BREAKING| BRK["PATH_REMOVED\nRESPONSE_FIELD_REMOVED\nRESPONSE_FIELD_TYPE_CHANGED\nREQUEST_REQUIRED_FIELD_ADDED"]
+    SEV -->|SAFE| SAF["PATH_ADDED\nRESPONSE_FIELD_ADDED\nREQUEST_OPTIONAL_FIELD_ADDED"]
 ```
 
 Unreachable services are stored as `UNREACHABLE` snapshots and are never used as a baseline — preventing false positives from transient downtime.
@@ -635,7 +661,11 @@ A complete, copy-paste implementation lives in `docs/JfrProfilingEndpoint.java`.
 
 ### Request Waterfall & Inter-Service Latency
 
-Add distributed tracing to each service and point it at ContractSentinel as the collector:
+ContractSentinel accepts Zipkin v2 JSON spans at `POST /api/traces/zipkin`. Each service needs to send spans there after every request.
+
+#### Spring Boot 3.x (micrometer auto-config)
+
+Add the Brave bridge and reporter dependencies, then configure the endpoint:
 
 ```xml
 <dependency><groupId>io.micrometer</groupId><artifactId>micrometer-tracing-bridge-brave</artifactId></dependency>
@@ -650,6 +680,93 @@ management:
     tracing:
       endpoint: http://localhost:8090/api/traces/zipkin
 ```
+
+#### Spring Boot 4.x — ContractSentinelFilter (required)
+
+> **Spring Boot 4.0 removed all Zipkin auto-configuration** from `spring-boot-actuator-autoconfigure`. The `management.zipkin.tracing.endpoint` property is silently ignored. The micrometer dependency approach above does nothing on Spring Boot 4.
+
+The fix is a lightweight `OncePerRequestFilter` that manually sends Zipkin v2 JSON spans — no new dependencies required:
+
+```java
+@Slf4j
+@Component
+@ConditionalOnProperty(name = "management.zipkin.tracing.endpoint")
+public class ContractSentinelFilter extends OncePerRequestFilter {
+
+    private static final List<String> NOISE_PREFIXES = List.of(
+            "/actuator", "/v3/api-docs", "/swagger-ui", "/swagger-resources", "/webjars", "/scalar"
+    );
+
+    private final String zipkinEndpoint;
+    private final String serviceName;
+    private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+
+    public ContractSentinelFilter(
+            @Value("${management.zipkin.tracing.endpoint}") String zipkinEndpoint,
+            @Value("${spring.application.name:unknown}") String serviceName) {
+        this.zipkinEndpoint = zipkinEndpoint;
+        this.serviceName = serviceName;
+    }
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
+                                    FilterChain chain) throws ServletException, IOException {
+        String path = request.getServletPath();
+        if (NOISE_PREFIXES.stream().anyMatch(path::startsWith)) {
+            chain.doFilter(request, response);
+            return;
+        }
+        long startMicros = System.currentTimeMillis() * 1000L;
+        String traceId = UUID.randomUUID().toString().replace("-", "");
+        String spanId  = traceId.substring(0, 16);
+        int[] status   = {500};
+        try {
+            chain.doFilter(request, response);
+            status[0] = response.getStatus();
+        } finally {
+            long durationMicros = System.currentTimeMillis() * 1000L - startMicros;
+            executor.execute(() -> sendSpan(traceId, spanId, request.getMethod(),
+                                            path, status[0], startMicros, durationMicros));
+        }
+    }
+
+    private void sendSpan(String traceId, String spanId, String method, String path,
+                          int status, long startMicros, long durationMicros) {
+        try {
+            String json = "[{\"traceId\":\"" + traceId + "\",\"id\":\"" + spanId
+                    + "\",\"name\":\"" + method + " " + path
+                    + "\",\"kind\":\"SERVER\",\"timestamp\":" + startMicros
+                    + ",\"duration\":" + durationMicros
+                    + ",\"localEndpoint\":{\"serviceName\":\"" + serviceName + "\"}"
+                    + ",\"tags\":{\"http.method\":\"" + method
+                    + "\",\"http.path\":\"" + path
+                    + "\",\"http.status_code\":\"" + status + "\"}}]";
+            HttpURLConnection conn = (HttpURLConnection) URI.create(zipkinEndpoint).toURL().openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setDoOutput(true);
+            conn.setConnectTimeout(2000);
+            conn.setReadTimeout(2000);
+            try (var os = conn.getOutputStream()) { os.write(json.getBytes(StandardCharsets.UTF_8)); }
+            conn.getResponseCode();
+            conn.disconnect();
+        } catch (Exception e) {
+            log.debug("Failed to send trace to ContractSentinel: {}", e.getMessage());
+        }
+    }
+}
+```
+
+Place the filter in your service's `config` package. Add the `management.zipkin.tracing.endpoint` property to `application.yaml`:
+
+```yaml
+management:
+  zipkin:
+    tracing:
+      endpoint: http://localhost:8090/api/traces/zipkin
+```
+
+The filter activates only when that property is present (`@ConditionalOnProperty`), so removing it in staging/prod silently disables tracing with no code change. All failures are swallowed at `log.debug` — the request/response path is never affected. Spans are sent on a virtual thread (Java 21+) so there is zero blocking overhead.
 
 The **Traces** tab lists collected traces and renders each as a waterfall. The dependency **Graph** edges are annotated with average inter-service round-trip latency (green &lt;10ms / amber 10–50ms / red &gt;50ms).
 
