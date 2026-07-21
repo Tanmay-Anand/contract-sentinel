@@ -14,7 +14,7 @@
 5. [Spec Snapshots](#5-spec-snapshots)
 6. [Contract Drift Detection](#6-contract-drift-detection)
 7. [Trace Ingestion Pipeline](#7-trace-ingestion-pipeline)
-8. [Hot Cache (Write-Ahead Layer)](#8-hot-cache-write-ahead-layer)
+8. [Hot Cache (Write-Through Layer)](#8-hot-cache-write-through-layer)
 9. [Performance and Metrics](#9-performance-and-metrics)
 10. [Dependency Graph](#10-dependency-graph)
 11. [Alert System](#11-alert-system)
@@ -37,7 +37,7 @@ These are the non-negotiables the rest of the design serves.
 1. **Pull, never push (for contracts).** CS fetches OpenAPI specs on a schedule rather than requiring services to register or emit events. A service needs zero CS-specific code — it only needs to expose `/v3/api-docs`.
 2. **Oldest snapshot as the immutable baseline.** Drift is always compared against the *first-ever* known spec for a service, not the previous one. This means no breaking change is silently forgotten across restarts or re-polls.
 3. **Deduplication at every boundary.** Hash-based dedup for snapshots; `(service, changeType, method, path)` dedup for drift events; `spanId`-based dedup for traces. The scheduler can repeat the same work safely.
-4. **Write-ahead cache for hot reads.** Spans are written to both the in-memory hot cache and the database simultaneously. Recent queries hit the cache; the DB is the durable fallback. This keeps the UI reactive without hammering the database.
+4. **Write-through cache for hot reads.** Spans are written to the database first, then to the in-memory hot cache. Recent queries hit the cache; the DB is the durable source of truth. This keeps the UI reactive without hammering the database.
 5. **Filter noise at the source.** CS's own polling calls (actuator, api-docs) are stripped from the trace store before `saveAll()` — they never touch the DB. A display-layer filter that runs after a DB read would still accumulate rows.
 6. **LLM as analyst, not executor.** The agent loop calls LLM-backed tools against CS's own APIs and services. It never executes raw SQL or arbitrary code — every tool is a bounded call into an existing service method.
 7. **Broadcast failures are swallowed.** WebSocket pushes are best-effort. A failed broadcast never propagates up to a DB write path and rolls back a transaction.
@@ -242,7 +242,7 @@ The registry is the master list of everything CS monitors. Every other subsystem
 - `status` — derived from the most recent snapshot's `FetchStatus` (`FETCHED` / `UNREACHABLE` / `PARSE_FAILED`)
 - `breakingDriftCount` — unacknowledged `BREAKING` drift events (`countByServiceAndSeverityAndAcknowledgedFalse`)
 
-These are per-service queries rather than a single join to avoid N+1 and keep the mapping clean.
+These are two targeted queries per service — which *is* the N+1 pattern (2N+1 queries total). At the current registry size (a handful of services) this is a non-issue and keeps the mapping simple; replace with two grouped queries if the registry grows past a few dozen services.
 
 ---
 
@@ -442,7 +442,7 @@ flowchart LR
 
 ---
 
-## 8. Hot Cache (Write-Ahead Layer)
+## 8. Hot Cache (Write-Through Layer)
 
 `TraceHotCache` is an in-memory cache for recently ingested spans that enables near-instant reads without touching the database.
 
@@ -451,11 +451,11 @@ flowchart LR
 ```java
 ConcurrentHashMap<String traceId, ConcurrentLinkedQueue<TraceSpan>> spansByTrace
 AtomicInteger totalSpans              // capacity guard (default 10,000)
-LinkedHashSet<String> recentSpanIds  // LRU dedup set (max 1,000 entries)
+LinkedHashSet<String> recentSpanIds  // FIFO dedup set (max 1,000 entries, insertion order)
 Object dedupLock                     // guards recentSpanIds (not spansByTrace)
 ```
 
-`ConcurrentHashMap` + `ConcurrentLinkedQueue` allow concurrent `put()` and `getSpansAfter()` from multiple HTTP threads without explicit locking on the data path. `LinkedHashSet` preserves insertion order so the oldest entry is always at `iterator().next()` — O(1) eviction of the LRU entry.
+`ConcurrentHashMap` + `ConcurrentLinkedQueue` allow concurrent `put()` and `getSpansAfter()` from multiple HTTP threads without explicit locking on the data path. `LinkedHashSet` preserves insertion order so the oldest entry is always at `iterator().next()` — O(1) eviction of the oldest (FIFO) entry. Note this is FIFO by insertion order, not LRU — reads do not refresh an entry's position.
 
 ### 8.2 Eviction
 
@@ -1070,7 +1070,7 @@ All error responses include the request ID, making it straightforward to correla
 
 ### 15.4 Jackson 3 (tools.jackson)
 
-Spring Boot 4.0 bundles Jackson 3, which ships under the package `tools.jackson.*` (not `com.fasterxml.jackson.*`). All CS code uses `tools.jackson.databind.ObjectMapper`, `tools.jackson.databind.JsonNode`, etc. Mixing old Jackson 2 imports causes `NoClassDefFoundError` at runtime — both versions cannot coexist in the same classloader.
+Spring Boot 4.0 bundles Jackson 3, which ships under the package `tools.jackson.*` (not `com.fasterxml.jackson.*`) — the rename exists precisely so that both major versions *can* coexist on the same classpath. All CS code uses `tools.jackson.databind.ObjectMapper`, `tools.jackson.databind.JsonNode`, etc. Third-party libraries may still pull in Jackson 2 (swagger-parser does, internally); that is fine — but be deliberate about which mapper parses what, and watch Jackson 3's changed serialization defaults (ISO-8601 dates, property ordering) when relying on JSON output stability.
 
 ---
 
@@ -1275,7 +1275,9 @@ These are invariants that must hold for the system to be correct. Violating any 
 
 6. **The poll cycle's `fixedDelay` must remain on `SpecFetcherScheduler.pollAll()`.** If changed to `fixedRate`, overlapping poll cycles become possible under slow service conditions. Each overlap duplicates outbound HTTP calls and can produce duplicate snapshots (caught by hash dedup but wasteful).
 
-7. **Agent tools must never execute caller-controlled raw SQL.** Every tool that touches the database does so through `DbQueryService`, which uses parameterised JDBC queries. The `ExplainQueryTool` accepts a full SQL string (to run `EXPLAIN ANALYZE`) — this is intentional but must remain behind authentication if CS is ever exposed publicly.
+7. **Agent tools must never execute caller-controlled raw SQL.** Every tool that touches the database does so through `DbQueryService`, which uses parameterised JDBC queries. The `ExplainQueryTool` accepts a full SQL string — all agent SQL passes through `SqlGuard` (SELECT-only parse, statement timeout, rollback-only transaction) and must remain behind authentication if CS is ever exposed publicly.
+
+8. **Exactly one CS instance may run.** The hot cache, WebSocket session set, span dedup set, and `@Scheduled` poll loop are all in-process state with no coordination layer. Running two instances produces duplicated polls against monitored services, split WebSocket event delivery, and split caches. If HA is ever required, the path is a scheduler lock (e.g. ShedLock) for the poll loop plus an external pub/sub for cross-instance WS fan-out — do not run a second instance without those.
 
 ---
 

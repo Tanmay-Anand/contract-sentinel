@@ -10,7 +10,12 @@ public record ParsedEndpointMetric(
         String uri,
         long count,
         long errorCount,
+        /** Null when the service did not publish a {@code 0.5} quantile. */
         Double p50Ms,
+        /** Null when the service did not publish a {@code 0.95} quantile. */
         Double p95Ms,
-        Double p99Ms
+        /** Null when the service did not publish a {@code 0.99} quantile. */
+        Double p99Ms,
+        /** Arithmetic mean (sum/count). Always computable; never a proxy for a percentile. */
+        Double meanMs
 ) {}

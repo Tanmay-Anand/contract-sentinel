@@ -20,6 +20,7 @@ public class AgentController {
     private final DiagnosisOrchestrator diagnosisOrchestrator;
     private final SchemaRiskAgent schemaRiskAgent;
     private final AgentRunStore store;
+    private final AgentLoop agentLoop;
 
     @PostMapping("/diagnose")
     @ResponseStatus(HttpStatus.ACCEPTED)
@@ -55,5 +56,12 @@ public class AgentController {
     @Operation(summary = "List recent agent runs, optionally filtered by type")
     public List<AgentRunDto> history(@RequestParam(required = false) AgentRun.AgentType type) {
         return store.history(type);
+    }
+
+    @DeleteMapping("/runs/{runId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Request cancellation of a running agent run")
+    public void cancel(@PathVariable UUID runId) {
+        agentLoop.cancel(runId);
     }
 }

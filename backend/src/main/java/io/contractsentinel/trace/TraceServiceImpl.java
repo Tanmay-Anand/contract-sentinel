@@ -1,6 +1,6 @@
 package io.contractsentinel.trace;
 
-import tools.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.contractsentinel.config.RequestContext;
 import io.contractsentinel.exception.SentinelException;
 import io.contractsentinel.stats.OutboundCallCounter;
@@ -8,6 +8,7 @@ import io.contractsentinel.ws.WebSocketEventPublisher;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,23 +25,28 @@ public class TraceServiceImpl implements TraceService {
     private final WebSocketEventPublisher eventPublisher;
     private final TraceHotCache hotCache;
     private final OutboundCallCounter counter;
+    private final TraceDbWriter traceDbWriter;
     private final List<String> noisePathPrefixes;
+    private final int purgeBatchSize;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public TraceServiceImpl(TraceSpanRepository spanRepository,
                             WebSocketEventPublisher eventPublisher,
                             TraceHotCache hotCache,
                             OutboundCallCounter counter,
-                            @Value("${sentinel.traces.noise-path-prefixes:}") List<String> noisePathPrefixes) {
+                            TraceDbWriter traceDbWriter,
+                            @Value("${sentinel.traces.noise-path-prefixes:}") List<String> noisePathPrefixes,
+                            @Value("${sentinel.traces.purge-batch-size:500}") int purgeBatchSize) {
         this.spanRepository = spanRepository;
         this.eventPublisher = eventPublisher;
         this.hotCache = hotCache;
         this.counter = counter;
+        this.traceDbWriter = traceDbWriter;
         this.noisePathPrefixes = noisePathPrefixes != null ? noisePathPrefixes : List.of();
+        this.purgeBatchSize = purgeBatchSize;
     }
 
     @Override
-    @Transactional
     public void ingest(List<ZipkinSpanDto> spans) {
         if (spans == null || spans.isEmpty()) {
             return;
@@ -89,13 +95,15 @@ public class TraceServiceImpl implements TraceService {
 
         if (entities.isEmpty()) return;
 
-        spanRepository.saveAll(entities);
+        // Critical path: cache + WebSocket first (~1ms), DB write is fire-and-forget on background thread
         entities.forEach(hotCache::put);
         counter.incIngestSpans(entities.size());
-
         Set<String> traceIds = entities.stream().map(TraceSpan::getTraceId).collect(Collectors.toSet());
+        counter.incRealTraces(traceIds.size());
         log.info("Zipkin ingest: {} span(s) across {} trace(s)", entities.size(), traceIds.size());
         eventPublisher.publish("trace.received", Map.of("count", traceIds.size(), "traceIds", traceIds));
+
+        traceDbWriter.saveAsync(new ArrayList<>(entities));
     }
 
     @Override
@@ -103,13 +111,13 @@ public class TraceServiceImpl implements TraceService {
     public List<TraceSummaryDto> listTraces(String serviceName, Long minDurationMs, int sinceMinutes, int limit) {
         Instant after = Instant.now().minus(Duration.ofMinutes(Math.max(1, sinceMinutes)));
 
-        int hotWindow    = hotCache.getWindowMinutes();
-        int overlapLimit = hotWindow + hotCache.getOverlapMinutes();
+        int hotWindow = hotCache.getWindowMinutes();
 
         List<TraceSpan> spans;
-        if (sinceMinutes <= hotWindow) {
+        if (sinceMinutes <= hotWindow && hotCache.coversWindow(after)) {
             spans = hotCache.getSpansAfter(after);
-        } else if (sinceMinutes <= overlapLimit) {
+        } else {
+            // Always merge: hot cache covers spans not yet flushed by the async DB writer.
             List<TraceSpan> fromCache = hotCache.getSpansAfter(after);
             Set<String> cacheIds = fromCache.stream().map(TraceSpan::getSpanId).collect(Collectors.toSet());
             List<TraceSpan> fromDb = spanRepository.findByReceivedAtAfter(after, PageRequest.of(0, 5000));
@@ -117,8 +125,6 @@ public class TraceServiceImpl implements TraceService {
             merged.addAll(fromCache);
             fromDb.stream().filter(s -> !cacheIds.contains(s.getSpanId())).forEach(merged::add);
             spans = merged;
-        } else {
-            spans = spanRepository.findByReceivedAtAfter(after, PageRequest.of(0, 5000));
         }
 
         Map<String, List<TraceSpan>> byTrace = spans.stream()
@@ -134,14 +140,21 @@ public class TraceServiceImpl implements TraceService {
                     .min(Comparator.comparingLong(TraceSpan::getStartEpochMicros))
                     .orElse(group.get(0));
 
+            // If the structurally-identified root has no HTTP tags (e.g. background job or
+            // streaming response where Spring tags the child span instead), fall back to the
+            // earliest span in the group that does carry HTTP method + path.
+            if (root.getHttpMethod() == null || root.getHttpPath() == null) {
+                root = group.stream()
+                        .filter(s -> s.getHttpMethod() != null && s.getHttpPath() != null)
+                        .min(Comparator.comparingLong(TraceSpan::getStartEpochMicros))
+                        .orElse(null);
+            }
+            if (root == null) continue;
+
             long start = group.stream().mapToLong(TraceSpan::getStartEpochMicros).min().orElse(0);
             long end   = group.stream().mapToLong(s -> s.getStartEpochMicros() + s.getDurationMicros()).max().orElse(start);
             long total = Math.max(0, end - start);
             boolean hasError = group.stream().anyMatch(s -> s.getHttpStatus() != null && s.getHttpStatus() >= 400);
-
-            // Only surface traces whose root is a real HTTP call; skip background jobs,
-            // security filter spans, and other non-HTTP instrumentation noise.
-            if (root.getHttpMethod() == null || root.getHttpPath() == null) continue;
 
             if (serviceName != null && !serviceName.isBlank()
                     && group.stream().noneMatch(s -> serviceName.equalsIgnoreCase(s.getServiceName()))) {
@@ -197,7 +210,17 @@ public class TraceServiceImpl implements TraceService {
     @Transactional
     public void purgeOlderThan(int retentionHours) {
         Instant cutoff = Instant.now().minus(Duration.ofHours(Math.max(1, retentionHours)));
-        spanRepository.deleteByReceivedAtBefore(cutoff);
+        // Delete in batches to avoid locking the table and generating excessive WAL in one shot.
+        Pageable page = PageRequest.of(0, purgeBatchSize);
+        List<UUID> ids;
+        int total = 0;
+        while (!(ids = spanRepository.findIdsByReceivedAtBefore(cutoff, page)).isEmpty()) {
+            spanRepository.deleteByIds(ids);
+            total += ids.size();
+        }
+        if (total > 0) {
+            log.info("Purged {} trace span(s) older than {} hours", total, retentionHours);
+        }
         hotCache.evictBefore(cutoff);
     }
 

@@ -42,10 +42,10 @@ public class SharedDbSchemaService {
 
     public List<DbSchemaGroupDto> getDbGraph() {
         // Introspect every active service's database, not just shared-database edge targets, so
-        // services that own their own DB (e.g. crm-platform-api, reached only over REST) still appear.
+        // services that own their own DB (e.g. service-e, reached only over REST) still appear.
         // De-duplicate by JDBC URL: services that genuinely share one physical DB (e.g. a reports
         // service pointing at its parent's DB) collapse into a single group. Sorting by name makes the
-        // owning service (post-sales before post-sales-reports) win the group name deterministically.
+        // owning service (service-a before service-c) win the group name deterministically.
         List<ServiceRegistry> services = serviceRegistryRepository.findAllByActiveTrue().stream()
                 .sorted(Comparator.comparing(ServiceRegistry::getName))
                 .toList();

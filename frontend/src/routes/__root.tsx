@@ -2,7 +2,7 @@ import { useState } from "react"
 import { createRootRoute, Link, Outlet } from "@tanstack/react-router"
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools"
 import { Toaster } from "sonner"
-import { Activity, List, BookOpen, Server, Network, Radio, Gauge, Waypoints, Brain } from "lucide-react"
+import { Activity, List, BookOpen, Server, Network, Radio, Gauge, Waypoints, Brain, DatabaseZap } from "lucide-react"
 import logo from "../assets/logo.png"
 import { useCallCount } from "../domains/contract-sentinel/presentation/hooks/use-stats"
 
@@ -29,6 +29,7 @@ function RootLayout() {
           <NavLink to="/infrastructure" icon={<Server  className="w-4 h-4" />} label="Infrastructure"   />
           <NavLink to="/graph"          icon={<Network      className="w-4 h-4" />} label="Graph"          />
           <NavLink to="/knowledge"      icon={<Brain        className="w-4 h-4" />} label="Knowledge"      />
+          <NavLink to="/migrations"     icon={<DatabaseZap  className="w-4 h-4" />} label="Migrations"     />
         </nav>
         <div className="ml-auto">
           <CallCountBadge />

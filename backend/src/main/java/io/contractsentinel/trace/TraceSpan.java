@@ -26,8 +26,12 @@ import java.util.UUID;
 public class TraceSpan {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
+
+    @PrePersist
+    void assignId() {
+        if (id == null) id = UuidV7.generate();
+    }
 
     @Column(nullable = false, length = 32)
     private String traceId;

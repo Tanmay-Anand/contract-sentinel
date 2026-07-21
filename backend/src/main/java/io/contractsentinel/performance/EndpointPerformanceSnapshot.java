@@ -53,7 +53,11 @@ public class EndpointPerformanceSnapshot {
     @Column(nullable = true)
     private Double p99Ms;
 
-    /** Cumulative request count as reported by the service â€” kept so deltas survive service restarts. */
+    /** Arithmetic mean (sum/count * 1000). Populated whenever count > 0; never used as a proxy for p50. */
+    @Column(nullable = true)
+    private Double meanMs;
+
+    /** Cumulative request count as reported by the service — kept so deltas survive service restarts. */
     @Column(nullable = false)
     private long totalCount;
 

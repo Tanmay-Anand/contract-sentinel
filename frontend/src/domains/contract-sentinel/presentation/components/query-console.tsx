@@ -25,8 +25,8 @@ import type { DbQueryResponse, DbSchemaGroupDto } from "../../infrastructure/api
 
 function serviceGroupColor(name: string): string {
   const n = name.toLowerCase()
-  if (n.includes("post-sales") && !n.includes("report")) return "#1d4ed8"
-  if (n.includes("pre-sales") && !n.includes("report")) return "#15803d"
+  if (n.includes("service-a") && !n.includes("report")) return "#1d4ed8"
+  if (n.includes("service-b") && !n.includes("report")) return "#15803d"
   if (n.includes("platform")) return "#7c3aed"
   if (n.includes("report")) return "#d97706"
   return "#64748b"

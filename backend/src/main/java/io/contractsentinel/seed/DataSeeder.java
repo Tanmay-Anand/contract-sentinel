@@ -24,11 +24,11 @@ public class DataSeeder implements ApplicationRunner {
     private final ServiceDependencyRepository dependencyRepository;
 
     private static final List<String[]> SERVICES = List.of(
-            new String[]{"crm-post-sales-api",         "http://localhost:8081", "/post-sales/v3/api-docs"},
-            new String[]{"crm-pre-sales-api",          "http://localhost:8082", "/pre-sales/v3/api-docs"},
-            new String[]{"crm-post-sales-reports-api", "http://localhost:8083", "/post-sales-reports/v3/api-docs"},
-            new String[]{"crm-pre-sales-reports-api",  "http://localhost:8084", "/pre-sales-reports/v3/api-docs"},
-            new String[]{"crm-platform-api",           "http://localhost:8085", "/platform/v3/api-docs"}
+            new String[]{"service-a",         "http://localhost:8081", "/service-a/v3/api-docs"},
+            new String[]{"service-b",          "http://localhost:8082", "/service-b/v3/api-docs"},
+            new String[]{"service-c", "http://localhost:8083", "/service-c/v3/api-docs"},
+            new String[]{"service-d",  "http://localhost:8084", "/service-d/v3/api-docs"},
+            new String[]{"service-e",           "http://localhost:8085", "/service-e/v3/api-docs"}
     );
 
     // [sourceName, targetName, propertyName, endpointCallsJson_or_null]
@@ -40,12 +40,12 @@ public class DataSeeder implements ApplicationRunner {
     private static final List<String[]> MANUAL_DEPS = List.of(
 
             // Reports services share the DB with their parent transactional API
-            new String[]{"crm-post-sales-reports-api", "crm-post-sales-api",  "shared-database", null},
-            new String[]{"crm-pre-sales-reports-api",  "crm-pre-sales-api",   "shared-database", null},
+            new String[]{"service-c", "service-a",  "shared-database", null},
+            new String[]{"service-d",  "service-b",   "shared-database", null},
 
-            // crm-platform-api calls crm-post-sales-api via signed internal RestClient (PostSalesCpClient)
+            // service-e calls service-a via signed internal RestClient (PostSalesCpClient)
             // and also pushes cache-evict webhooks
-            new String[]{"crm-platform-api", "crm-post-sales-api", "internal-rest",
+            new String[]{"service-e", "service-a", "internal-rest",
             """
             [
               {"method":"GET",  "path":"/internal/channel-partners/{cpId}/commission-summary", "description":"Fetch CP commission summary (PostSalesCpClient)"},
@@ -57,16 +57,16 @@ public class DataSeeder implements ApplicationRunner {
             ]
             """},
 
-            // crm-platform-api pushes cache-evict webhooks to the reports service
-            new String[]{"crm-platform-api", "crm-post-sales-reports-api", "webhook",
+            // service-e pushes cache-evict webhooks to the reports service
+            new String[]{"service-e", "service-c", "webhook",
             """
             [
               {"method":"POST", "path":"/internal/platform/cache-evict", "description":"Webhook: evict cached User/Broker/CP after platform mutation"}
             ]
             """},
 
-            // crm-post-sales-api notifies crm-pre-sales-api after booking creation (lead conversion)
-            new String[]{"crm-post-sales-api", "crm-pre-sales-api", "webhook",
+            // service-a notifies service-b after booking creation (lead conversion)
+            new String[]{"service-a", "service-b", "webhook",
             """
             [
               {"method":"POST", "path":"/internal/leads/{id}/buyer-created", "description":"After booking creation, links buyer back to lead (lead conversion)"}
