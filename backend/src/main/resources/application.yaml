@@ -2,9 +2,9 @@ spring:
   application:
     name: contract-sentinel
   datasource:
-    url: ${SENTINEL_DB_URL:jdbc:postgresql://localhost:5432/contract_sentinel}
+    url: ${SENTINEL_DB_URL:jdbc:postgresql://localhost:5402/contract_sentinel}
     username: postgres
-    password: password
+    password: ${SENTINEL_DB_PASSWORD:changeme}
   jpa:
     hibernate:
       ddl-auto: update
@@ -28,47 +28,48 @@ springdoc:
 
 sentinel:
   poll:
-    interval-ms: 300000        # 5 minutes between polls
-    initial-delay-ms: 15000    # 15s grace period on startup
-  services:
-    # List the services you want to monitor here.
-    # Each entry is seeded into the DB on startup (duplicates are skipped).
-    - name: "my-service"
-      baseUrl: "http://localhost:8080"
-      specPath: "/v3/api-docs"
-    # - name: "another-service"
-    #   baseUrl: "http://localhost:8081"
-    #   specPath: "/v3/api-docs"
-  manual-dependencies:
-    # List manual service dependencies here (not auto-detectable via actuator/env).
-    # Examples: shared-database, internal-rest calls, webhooks.
-    # - source: "service-a"
-    #   target: "service-b"
-    #   propertyName: "shared-database"
-    #   endpointCallsJson: null
-  docker:
-    enabled: false
-  gateway:
-    url: ""
+    interval-ms: 300000   # 5 minutes
+    initial-delay-ms: 15000
+    max-spec-bytes: 10485760          # reject /v3/api-docs responses larger than 10 MB
   db:
-    schema: public
-  performance:
-    retention-days: 30          # how long to keep endpoint performance snapshots
+    statement-timeout-ms: 5000        # hard cap on any query CS runs against a monitored DB
+    allow-explain-analyze: false      # EXPLAIN ANALYZE executes the statement; plain EXPLAIN is default
+  security:
+    # Egress allowlist for user-configurable alert destinations (scheme://host[:port], * wildcard).
+    destination-allowlist: https://hooks.slack.com,http://localhost:*,http://127.0.0.1:*
   traces:
-    retention-hours: 24         # how long to keep collected trace spans (100% sampling grows fast)
-    noise-path-prefixes:        # spans on these paths are dropped at ingest — never written to DB
+    retention-hours: 24
+    hot-cache-window-minutes: 15
+    hot-cache-max-spans: 10000
+    prod-batch-size: 50
+    noise-path-prefixes:
       - /actuator
       - /v3/api-docs
       - /swagger-ui
       - /swagger-resources
       - /webjars
       - /scalar
+  docker:
+    enabled: true   # set to false to disable docker ps integration entirely
+  gateway:
+    url: http://localhost:8080        # nginx/gateway URL for gateway-vs-direct health comparison
+  performance:
+    retention-days: 30
+  flyway:
+    poll-interval-ms: 900000    # 15 minutes between Flyway actuator polls
+    # Filesystem scanner: absolute paths to each service's db/migration directory.
+    # Key must match the service name in cs_service_registry. Omit a service to skip FS scan for it.
+    migration-dirs:
+      post-sales-api: ${FLYWAY_DIR_POST_SALES:/path/to/builder-crm-post-sales-api/src/main/resources/db/migration}
+      platform-api: ${FLYWAY_DIR_PLATFORM:/path/to/builder-crm-platform-api/src/main/resources/db/migration}
+      pre-sales-api: ${FLYWAY_DIR_PRE_SALES:/path/to/builder-crm-pre-sales-api/src/main/resources/db/migration}
+      post-sales-reports-api: ${FLYWAY_DIR_POST_SALES_REPORTS:/path/to/builder-crm-post-sales-reports-api/src/main/resources/db/migration}
+      pre-sales-reports-api: ${FLYWAY_DIR_PRE_SALES_REPORTS:/path/to/builder-crm-pre-sales-reports-api/src/main/resources/db/migration}
   frontend:
-    # Absolute path to a frontend source tree the schema-risk agent greps for column references.
-    # Leave blank to disable the frontend_grep agent tool.
-    source-dir: ${SENTINEL_FRONTEND_SOURCE_DIR:}
+    # Absolute path to the frontend source tree the schema-risk agent greps for column references.
+    source-dir: ${SENTINEL_FRONTEND_SOURCE_DIR:/path/to/contract-sentinel-ui/src}
   llm:
-    provider: ${SENTINEL_LLM_PROVIDER:ollama}   # ollama | claude | groq | openai
+    provider: ${SENTINEL_LLM_PROVIDER:ollama}   # ollama | claude | groq
     max-iterations: 20
     request-timeout-seconds: 120
     ollama:
@@ -79,18 +80,13 @@ sentinel:
       base-url: https://api.anthropic.com
       model: ${SENTINEL_LLM_CLAUDE_MODEL:claude-sonnet-4-5}
       max-tokens: 2048
-      api-key: ${SENTINEL_LLM_CLAUDE_API_KEY:}   # never commit a real key
+      api-key: ${SENTINEL_LLM_CLAUDE_API_KEY:}
     groq:
       base-url: https://api.groq.com/openai
       model: ${SENTINEL_LLM_GROQ_MODEL:llama-3.3-70b-versatile}
       max-tokens: 2048
-      api-key: ${SENTINEL_LLM_GROQ_API_KEY:}   # never commit a real key
-    openai:
-      base-url: https://api.openai.com
-      model: ${SENTINEL_LLM_OPENAI_MODEL:gpt-4o}
-      max-tokens: 2048
-      api-key: ${SENTINEL_LLM_OPENAI_API_KEY:}   # never commit a real key
+      api-key: ${SENTINEL_LLM_GROQ_API_KEY:}
 
 logging:
   level:
-    io.contractsentinel: info
+    com.example.crm.sentinel: info

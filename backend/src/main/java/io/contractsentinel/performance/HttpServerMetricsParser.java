@@ -15,7 +15,7 @@ import java.util.regex.Pattern;
  * {@code quantile}-labelled samples); the plain JSON {@code /metrics} endpoint only carries
  * count/total/max. Multiple label combinations (status, outcome, exception) exist per endpoint;
  * counts and sums are summed, max is maxed, and each quantile is taken as the worst value across
- * combinations â€” a deliberate, locally-valid approximation.
+ * combinations — a deliberate, locally-valid approximation.
  */
 public final class HttpServerMetricsParser {
 
@@ -142,14 +142,13 @@ public final class HttpServerMetricsParser {
         }
 
         ParsedEndpointMetric toMetric() {
-            Double p50 = quantiles.containsKey("0.5")
-                    ? quantiles.get("0.5") * 1000.0
-                    : (count > 0 ? (sumSeconds / count) * 1000.0 : null);
+            Double meanMs = count > 0 ? (sumSeconds / count) * 1000.0 : null;
+            // Percentiles are null when the service didn't publish pre-computed quantiles.
+            // meanMs is always populated so the UI can fall back to it for display.
+            Double p50 = quantiles.containsKey("0.5")  ? quantiles.get("0.5")  * 1000.0 : null;
             Double p95 = quantiles.containsKey("0.95") ? quantiles.get("0.95") * 1000.0 : null;
-            Double p99 = quantiles.containsKey("0.99")
-                    ? quantiles.get("0.99") * 1000.0
-                    : maxSeconds * 1000.0;
-            return new ParsedEndpointMetric(method, uri, count, errorCount, p50, p95, p99);
+            Double p99 = quantiles.containsKey("0.99") ? quantiles.get("0.99") * 1000.0 : null;
+            return new ParsedEndpointMetric(method, uri, count, errorCount, p50, p95, p99, meanMs);
         }
     }
 }

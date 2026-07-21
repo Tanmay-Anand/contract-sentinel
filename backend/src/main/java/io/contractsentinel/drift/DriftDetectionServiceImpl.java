@@ -1,6 +1,6 @@
 package io.contractsentinel.drift;
 
-import tools.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.contractsentinel.alert.AlertService;
 import io.contractsentinel.registry.ServiceRegistry;
 import io.contractsentinel.snapshot.SpecSnapshot;
@@ -8,6 +8,7 @@ import io.contractsentinel.ws.WebSocketEventPublisher;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.Operation;
 import io.swagger.v3.oas.models.media.Schema;
+import io.swagger.v3.oas.models.parameters.Parameter;
 import io.swagger.v3.oas.models.responses.ApiResponse;
 import io.swagger.v3.parser.OpenAPIV3Parser;
 import io.swagger.v3.parser.core.models.ParseOptions;
@@ -42,12 +43,13 @@ public class DriftDetectionServiceImpl implements DriftDetectionService {
 
         List<DriftEvent> events = diff(service, prev, curr, prevApi, currApi);
 
-        // Deduplicate: skip any event whose (service, changeType, httpMethod, apiPath) combination
-        // already exists in the database. This allows the scheduler to compare oldest-vs-current
-        // on every poll without creating duplicate entries.
+        // Deduplicate: skip any event whose (service, changeType, httpMethod, apiPath, fieldPath)
+        // combination already exists. fieldPath is part of the key so a SECOND field removed on
+        // the same endpoint is a new finding, not a duplicate of the first — without it, the
+        // oldest-baseline diff correctly detects the change but dedup silently discards it.
         List<DriftEvent> newEvents = events.stream()
-                .filter(e -> !driftEventRepository.existsByServiceAndChangeTypeAndHttpMethodAndApiPath(
-                        e.getService(), e.getChangeType(), e.getHttpMethod(), e.getApiPath()))
+                .filter(e -> !driftEventRepository.existsByServiceAndChangeTypeAndHttpMethodAndApiPathAndFieldPath(
+                        e.getService(), e.getChangeType(), e.getHttpMethod(), e.getApiPath(), e.getFieldPath()))
                 .toList();
 
         if (!newEvents.isEmpty()) {
@@ -90,7 +92,7 @@ public class DriftDetectionServiceImpl implements DriftDetectionService {
                 String[] parts = entry.getKey().split(":", 2);
                 events.add(buildEvent(service, prev, curr,
                         DriftEvent.ChangeType.PATH_REMOVED, DriftEvent.Severity.BREAKING,
-                        parts[0], parts[1], Map.of("removed", entry.getKey())));
+                        parts[0], parts[1], null, Map.of("removed", entry.getKey())));
             }
         }
 
@@ -99,7 +101,7 @@ public class DriftDetectionServiceImpl implements DriftDetectionService {
                 String[] parts = key.split(":", 2);
                 events.add(buildEvent(service, prev, curr,
                         DriftEvent.ChangeType.PATH_ADDED, DriftEvent.Severity.SAFE,
-                        parts[0], parts[1], Map.of("added", key)));
+                        parts[0], parts[1], null, Map.of("added", key)));
             }
         }
 
@@ -139,7 +141,7 @@ public class DriftDetectionServiceImpl implements DriftDetectionService {
             if (!currFields.contains(field)) {
                 events.add(buildEvent(service, prev, curr,
                         DriftEvent.ChangeType.RESPONSE_FIELD_REMOVED, DriftEvent.Severity.BREAKING,
-                        method, path, Map.of("field", field, "previousType", prevTypes.getOrDefault(field, "unknown"))));
+                        method, path, field, Map.of("field", field, "previousType", prevTypes.getOrDefault(field, "unknown"))));
             }
         }
 
@@ -147,7 +149,7 @@ public class DriftDetectionServiceImpl implements DriftDetectionService {
             if (!prevFields.contains(field)) {
                 events.add(buildEvent(service, prev, curr,
                         DriftEvent.ChangeType.RESPONSE_FIELD_ADDED, DriftEvent.Severity.SAFE,
-                        method, path, Map.of("field", field, "newType", currTypes.getOrDefault(field, "unknown"))));
+                        method, path, field, Map.of("field", field, "newType", currTypes.getOrDefault(field, "unknown"))));
             }
         }
 
@@ -158,7 +160,7 @@ public class DriftDetectionServiceImpl implements DriftDetectionService {
                 if (!prevType.isEmpty() && !currType.isEmpty() && !prevType.equals(currType)) {
                     events.add(buildEvent(service, prev, curr,
                             DriftEvent.ChangeType.RESPONSE_FIELD_TYPE_CHANGED, DriftEvent.Severity.BREAKING,
-                            method, path, Map.of("field", field, "oldType", prevType, "newType", currType)));
+                            method, path, field, Map.of("field", field, "oldType", prevType, "newType", currType)));
                 }
             }
         }
@@ -169,11 +171,73 @@ public class DriftDetectionServiceImpl implements DriftDetectionService {
             if (!prevRequired.contains(field)) {
                 events.add(buildEvent(service, prev, curr,
                         DriftEvent.ChangeType.REQUEST_REQUIRED_FIELD_ADDED, DriftEvent.Severity.BREAKING,
-                        method, path, Map.of("requiredField", field)));
+                        method, path, field, Map.of("requiredField", field)));
             }
         }
 
+        events.addAll(diffParameters(service, prev, curr, method, path, prevOp, currOp));
+
         return events;
+    }
+
+    private List<DriftEvent> diffParameters(ServiceRegistry service, SpecSnapshot prev, SpecSnapshot curr,
+                                             String method, String path,
+                                             Operation prevOp, Operation currOp) {
+        List<DriftEvent> events = new ArrayList<>();
+        Map<String, Parameter> prevParams = indexParams(prevOp);
+        Map<String, Parameter> currParams = indexParams(currOp);
+
+        for (Map.Entry<String, Parameter> entry : prevParams.entrySet()) {
+            String paramKey = entry.getKey();
+            Parameter prevParam = entry.getValue();
+            Parameter currParam = currParams.get(paramKey);
+
+            if (currParam == null) {
+                events.add(buildEvent(service, prev, curr,
+                        DriftEvent.ChangeType.PARAM_REMOVED, DriftEvent.Severity.BREAKING,
+                        method, path, "param:" + prevParam.getName(),
+                        Map.of("param", prevParam.getName(), "in", prevParam.getIn())));
+                continue;
+            }
+
+            // Check type change
+            String prevType = paramType(prevParam);
+            String currType = paramType(currParam);
+            if (!prevType.isEmpty() && !currType.isEmpty() && !prevType.equals(currType)) {
+                events.add(buildEvent(service, prev, curr,
+                        DriftEvent.ChangeType.PARAM_TYPE_CHANGED, DriftEvent.Severity.BREAKING,
+                        method, path, "param:" + prevParam.getName(),
+                        Map.of("param", prevParam.getName(), "oldType", prevType, "newType", currType)));
+            }
+
+            // Check optional → required
+            boolean wasRequired = Boolean.TRUE.equals(prevParam.getRequired());
+            boolean nowRequired = Boolean.TRUE.equals(currParam.getRequired());
+            if (!wasRequired && nowRequired) {
+                events.add(buildEvent(service, prev, curr,
+                        DriftEvent.ChangeType.PARAM_BECAME_REQUIRED, DriftEvent.Severity.BREAKING,
+                        method, path, "param:" + prevParam.getName(),
+                        Map.of("param", prevParam.getName(), "in", prevParam.getIn())));
+            }
+        }
+        return events;
+    }
+
+    private static Map<String, Parameter> indexParams(Operation op) {
+        if (op == null || op.getParameters() == null) return Map.of();
+        Map<String, Parameter> index = new LinkedHashMap<>();
+        for (Parameter p : op.getParameters()) {
+            if (p.getName() != null && p.getIn() != null) {
+                index.put(p.getIn() + ":" + p.getName(), p);
+            }
+        }
+        return index;
+    }
+
+    private static String paramType(Parameter p) {
+        if (p.getSchema() == null) return "";
+        String type = p.getSchema().getType();
+        return type != null ? type : "";
     }
 
     @SuppressWarnings("unchecked")
@@ -219,7 +283,7 @@ public class DriftDetectionServiceImpl implements DriftDetectionService {
 
     private DriftEvent buildEvent(ServiceRegistry service, SpecSnapshot prev, SpecSnapshot curr,
                                    DriftEvent.ChangeType changeType, DriftEvent.Severity severity,
-                                   String method, String path, Map<String, Object> detail) {
+                                   String method, String path, String fieldPath, Map<String, Object> detail) {
         String detailJson;
         try {
             detailJson = objectMapper.writeValueAsString(detail);
@@ -234,6 +298,7 @@ public class DriftDetectionServiceImpl implements DriftDetectionService {
                 .severity(severity)
                 .httpMethod(method)
                 .apiPath(path)
+                .fieldPath(fieldPath)
                 .detail(detailJson)
                 .build();
     }

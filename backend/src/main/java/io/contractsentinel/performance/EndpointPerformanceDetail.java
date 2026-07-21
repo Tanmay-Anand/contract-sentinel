@@ -17,12 +17,13 @@ public record EndpointPerformanceDetail(
             Double p50Ms,
             Double p95Ms,
             Double p99Ms,
+            Double meanMs,
             long countDelta,
             long errorCount
     ) {
         public static Point from(EndpointPerformanceSnapshot s) {
             return new Point(s.getRecordedAt(), s.getP50Ms(), s.getP95Ms(), s.getP99Ms(),
-                    s.getCountDelta(), s.getErrorCount());
+                    s.getMeanMs(), s.getCountDelta(), s.getErrorCount());
         }
     }
 }

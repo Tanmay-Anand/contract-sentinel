@@ -108,14 +108,14 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                 .collect(Collectors.joining("\n"));
 
         String systemPrompt = """
-                You are a database schema analyst for a construction/real estate CRM.
+                You are a database schema analyst for a your domain.
                 Suggest natural-language synonyms developers might use when querying this schema.
                 Rules:
                 - Focus on TABLE synonyms (most impactful); include important COLUMN synonyms too
                 - Only suggest terms with clear semantic meaning in the domain
                 - Do not duplicate terms that already match the table/column name exactly
                 Respond with ONLY a valid JSON array. No prose, no markdown fences.
-                Format: [{"term":"sale","targetType":"TABLE","targetName":"booking","serviceName":"crm-post-sales-api"}]
+                Format: [{"term":"sale","targetType":"TABLE","targetName":"booking","serviceName":"service-a"}]
                 """;
 
         String userPrompt = "Schema:\n" + tableList + "\n\nSuggest 15-25 synonyms. Return only the JSON array.";
@@ -239,7 +239,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         }
 
         String systemPrompt = """
-                You are a BI analyst for a construction/real estate CRM.
+                You are a BI analyst for a your domain.
                 Suggest useful pre-defined business metrics based on the database schema.
                 Rules:
                 - Each metric must answer a real business question developers would ask
@@ -248,7 +248,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                 Respond with ONLY a valid JSON array. No prose, no markdown fences.
                 Format: [{"name":"BookingCount","displayName":"Confirmed Booking Count","description":"Total confirmed bookings",
                 "sqlDefinition":"SELECT COUNT(*) FROM booking WHERE status = 'CONFIRMED'",
-                "anchorTable":"booking","serviceName":"crm-post-sales-api","aggregationFunction":"COUNT"}]
+                "anchorTable":"booking","serviceName":"service-a","aggregationFunction":"COUNT"}]
                 """;
 
         String userPrompt = "Schema:\n" + sb + "\n\nSuggest 10-15 business metrics. Return only the JSON array.";

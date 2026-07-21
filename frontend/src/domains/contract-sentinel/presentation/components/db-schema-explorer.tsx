@@ -106,8 +106,8 @@ async function runFocusElk(
 // ── Focus table node (ELK view) ───────────────────────────────────────────────
 
 function svcColor(service: string) {
-  if (service.includes("post-sales")) return "#1e3a8a"
-  if (service.includes("pre-sales"))  return "#166534"
+  if (service.includes("service-a")) return "#1e3a8a"
+  if (service.includes("service-b"))  return "#166534"
   return "#6366f1"
 }
 
@@ -494,8 +494,8 @@ function FullPhysicsGraph({
     const R = 7
     for (const node of nodes) {
       const op    = getOpacity(node.id)
-      const color = node.service.includes("post-sales") ? "#1e3a8a"
-                  : node.service.includes("pre-sales")  ? "#166534"
+      const color = node.service.includes("service-a") ? "#1e3a8a"
+                  : node.service.includes("service-b")  ? "#166534"
                   : "#6366f1"
 
       // Cross-service amber ring
@@ -798,10 +798,10 @@ function FullPhysicsGraph({
         background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 6,
       }}>
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ width: 9, height: 9, borderRadius: "50%", background: "#1e3a8a", display: "inline-block" }} /> post-sales
+          <span style={{ width: 9, height: 9, borderRadius: "50%", background: "#1e3a8a", display: "inline-block" }} /> service-a
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ width: 9, height: 9, borderRadius: "50%", background: "#166534", display: "inline-block" }} /> pre-sales
+          <span style={{ width: 9, height: 9, borderRadius: "50%", background: "#166534", display: "inline-block" }} /> service-b
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <span style={{ width: 9, height: 9, borderRadius: "50%", border: "2px solid #f59e0b", display: "inline-block" }} /> cross-FK
@@ -895,8 +895,8 @@ export function DbSchemaExplorer() {
 
   function shortName(s: string) { return s.replace(/^crm-/, "").replace(/-api$/, "") }
   function dotColor(s: string) {
-    if (s.includes("post-sales")) return "#1e3a8a"
-    if (s.includes("pre-sales"))  return "#166534"
+    if (s.includes("service-a")) return "#1e3a8a"
+    if (s.includes("service-b"))  return "#166534"
     return "#6366f1"
   }
 

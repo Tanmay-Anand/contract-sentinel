@@ -11,15 +11,26 @@ public record ServiceRegistryDto(
         boolean active,
         Instant createdAt,
         String status,
-        long breakingDriftCount
+        long breakingDriftCount,
+        Integer healthScore
 ) {
     public static ServiceRegistryDto from(ServiceRegistry s) {
         return new ServiceRegistryDto(s.getId(), s.getName(), s.getBaseUrl(),
-                s.getSpecPath(), s.isActive(), s.getCreatedAt(), "UNKNOWN", 0);
+                s.getSpecPath(), s.isActive(), s.getCreatedAt(), "UNKNOWN", 0, null);
     }
 
     public static ServiceRegistryDto from(ServiceRegistry s, String status, long breakingCount) {
         return new ServiceRegistryDto(s.getId(), s.getName(), s.getBaseUrl(),
-                s.getSpecPath(), s.isActive(), s.getCreatedAt(), status, breakingCount);
+                s.getSpecPath(), s.isActive(), s.getCreatedAt(), status, breakingCount,
+                computeHealthScore(status, breakingCount));
+    }
+
+    private static Integer computeHealthScore(String status, long breakingCount) {
+        if ("UNKNOWN".equals(status)) return null;
+        int score = 100;
+        if ("UNREACHABLE".equals(status)) score -= 30;
+        else if ("PARSE_FAILED".equals(status)) score -= 10;
+        score -= (int) Math.min(breakingCount * 20L, 80L);
+        return Math.max(0, score);
     }
 }

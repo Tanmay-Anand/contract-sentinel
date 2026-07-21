@@ -1,5 +1,6 @@
 package io.contractsentinel.trace;
 
+import io.contractsentinel.graph.DependencyGraphService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -14,6 +15,7 @@ import java.util.List;
 public class TraceDbWriter {
 
     private final TraceSpanRepository spanRepository;
+    private final DependencyGraphService dependencyGraphService;
 
     @Async("traceDbExecutor")
     @Transactional
@@ -22,6 +24,11 @@ public class TraceDbWriter {
             spanRepository.saveAll(entities);
         } catch (Exception e) {
             log.error("Async trace DB write failed for {} span(s): {}", entities.size(), e.getMessage(), e);
+        }
+        try {
+            dependencyGraphService.deriveEdgesFromSpans(entities);
+        } catch (Exception e) {
+            log.warn("Trace edge derivation failed: {}", e.getMessage());
         }
     }
 }

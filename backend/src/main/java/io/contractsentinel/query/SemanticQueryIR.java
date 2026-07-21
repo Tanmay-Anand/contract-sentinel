@@ -24,7 +24,7 @@ public record SemanticQueryIR(
             {
               "intent": "SELECT | COUNT | AGGREGATE | METRIC",
               "targetTable": "exact table name from schema (e.g. booking)",
-              "serviceName": "service name (e.g. crm-post-sales-api)",
+              "serviceName": "service name (e.g. service-a)",
               "selectColumns": ["col1", "col2"] or ["*"],
               "filters": [
                 {"column": "status", "operator": "=", "value": "CONFIRMED"}

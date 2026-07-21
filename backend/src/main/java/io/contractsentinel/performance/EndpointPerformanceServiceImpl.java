@@ -7,6 +7,7 @@ import io.contractsentinel.registry.ServiceRegistryRepository;
 import io.contractsentinel.sampler.EndpointSizeDto;
 import io.contractsentinel.sampler.ResponseSamplerService;
 import io.contractsentinel.stats.OutboundCallCounter;
+import io.contractsentinel.ws.WebSocketEventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -28,6 +29,7 @@ public class EndpointPerformanceServiceImpl implements EndpointPerformanceServic
     private final ServiceRegistryRepository serviceRegistryRepository;
     private final ResponseSamplerService responseSamplerService;
     private final OutboundCallCounter callCounter;
+    private final WebSocketEventPublisher eventPublisher;
 
     private final RestClient restClient = RestClient.builder()
             .requestFactory(factory())
@@ -54,13 +56,22 @@ public class EndpointPerformanceServiceImpl implements EndpointPerformanceServic
             return null;
         }
 
+        if (!metrics.isEmpty() && metrics.stream().allMatch(m -> m.p95Ms() == null)) {
+            log.warn("Service '{}' published no percentile metrics — add " +
+                     "management.metrics.distribution.percentiles[http.server.requests]=0.5,0.95,0.99 " +
+                     "to enable P50/P95/P99 tracking", service.getName());
+        }
+
         for (ParsedEndpointMetric m : metrics) {
             try {
                 long previousTotal = snapshotRepository
                         .findTopByServiceAndHttpMethodAndPathOrderByRecordedAtDesc(service, m.method(), m.uri())
                         .map(EndpointPerformanceSnapshot::getTotalCount)
                         .orElse(0L);
-                long delta = Math.max(0, m.count() - previousTotal);
+                // When count < previousTotal the Prometheus counter reset (service restart).
+                // Use the new count as the delta rather than clamping to 0, which would silently
+                // discard all requests recorded since the restart.
+                long delta = m.count() >= previousTotal ? m.count() - previousTotal : m.count();
 
                 snapshotRepository.save(EndpointPerformanceSnapshot.builder()
                         .service(service)
@@ -69,6 +80,7 @@ public class EndpointPerformanceServiceImpl implements EndpointPerformanceServic
                         .p50Ms(m.p50Ms())
                         .p95Ms(m.p95Ms())
                         .p99Ms(m.p99Ms())
+                        .meanMs(m.meanMs())
                         .totalCount(m.count())
                         .countDelta(delta)
                         .errorCount(m.errorCount())
@@ -79,7 +91,11 @@ public class EndpointPerformanceServiceImpl implements EndpointPerformanceServic
             }
         }
         log.debug("Collected {} endpoint performance snapshots for {}", metrics.size(), service.getName());
+        if (!metrics.isEmpty()) {
+            eventPublisher.publish("metric.updated", Map.of("serviceName", service.getName()));
+        }
 
+        // Find the endpoint with the highest P95 at this scrape cycle.
         ParsedEndpointMetric dominant = metrics.stream()
                 .filter(m -> m.p95Ms() != null)
                 .max(Comparator.comparingDouble(ParsedEndpointMetric::p95Ms))
@@ -87,15 +103,14 @@ public class EndpointPerformanceServiceImpl implements EndpointPerformanceServic
 
         if (dominant == null) return null;
 
-        double serviceMaxP95 = dominant.p95Ms();
-        double serviceMaxP50 = metrics.stream()
+        OptionalDouble avgP50 = metrics.stream()
                 .filter(m -> m.p50Ms() != null)
                 .mapToDouble(ParsedEndpointMetric::p50Ms)
-                .average()
-                .orElse(serviceMaxP95);
+                .average();
+        Double serviceMaxP50 = avgP50.isPresent() ? avgP50.getAsDouble() : null;
 
         return new EndpointPerformanceService.CollectionResult(
-                serviceMaxP95, serviceMaxP50, dominant.method(), dominant.uri());
+                dominant.p95Ms(), serviceMaxP50, dominant.method(), dominant.uri());
     }
 
     @Override
@@ -146,6 +161,7 @@ public class EndpointPerformanceServiceImpl implements EndpointPerformanceServic
                     s.getP50Ms(),
                     s.getP95Ms(),
                     s.getP99Ms(),
+                    s.getMeanMs(),
                     round(errorRatePct),
                     sizeByKey.get(s.getService().getId() + ":" + s.getHttpMethod() + ":" + s.getPath()),
                     round(p99Ratio),

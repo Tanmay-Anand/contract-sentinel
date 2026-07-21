@@ -4,7 +4,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * One row of the performance registry â€” the latest reading for an endpoint plus derived signals
+ * One row of the performance registry — the latest reading for an endpoint plus derived signals
  * (relative p99 ranking, volatility, a p95 sparkline) that no single actuator call can produce.
  */
 public record EndpointPerformanceRow(
@@ -16,6 +16,7 @@ public record EndpointPerformanceRow(
         Double p50Ms,
         Double p95Ms,
         Double p99Ms,
+        Double meanMs,
         double errorRatePct,
         Long responseSizeBytes,
         double p99MedianRatio,

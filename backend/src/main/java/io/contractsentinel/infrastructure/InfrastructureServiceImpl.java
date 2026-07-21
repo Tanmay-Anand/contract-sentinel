@@ -145,7 +145,7 @@ public class InfrastructureServiceImpl implements InfrastructureService {
         List<GatewayHealthDto> results = new ArrayList<>();
 
         for (ServiceRegistry svc : services) {
-            // specPath is e.g. "/post-sales/v3/api-docs" — strip the /v3/api-docs suffix
+            // specPath is e.g. "/service-a/v3/api-docs" — strip the /v3/api-docs suffix
             // to get the servlet context-path prefix used by both actuator and the app itself.
             String contextPath = contextPathFrom(svc.getSpecPath());
 
@@ -155,7 +155,7 @@ public class InfrastructureServiceImpl implements InfrastructureService {
             String gwUrl = null;
             String gwStatus;
             if (gatewayUrl != null && !gatewayUrl.isBlank()) {
-                // nginx proxies the same context-path prefix, e.g. /post-sales/* → post-sales-api
+                // nginx proxies the same context-path prefix, e.g. /service-a/* → service-a-api
                 gwUrl = gatewayUrl + contextPath + "/actuator/health";
                 gwStatus = probeHealth(gwUrl);
             } else {
@@ -170,7 +170,7 @@ public class InfrastructureServiceImpl implements InfrastructureService {
         return results;
     }
 
-    // "/post-sales/v3/api-docs"  → "/post-sales"
+    // "/service-a/v3/api-docs"  → "/service-a"
     // "/v3/api-docs"             → ""   (no context-path)
     private String contextPathFrom(String specPath) {
         if (specPath == null) return "";

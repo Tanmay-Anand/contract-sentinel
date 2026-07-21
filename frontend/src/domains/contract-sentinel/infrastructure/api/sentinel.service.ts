@@ -39,6 +39,8 @@ import type {
   MetricDto,
   ServiceKnowledgeSummaryDto,
   NlQueryResponse,
+  FlywayServiceSummaryDto,
+  FlywayMigrationRecordDto,
 } from "./types"
 
 const BASE_URL = (import.meta.env["VITE_SENTINEL_API_URL"] as string | undefined) ?? "http://localhost:8090"
@@ -290,5 +292,15 @@ export const sentinelService = {
       request<void>(`/api/knowledge/metrics/${id}`, { method: "DELETE" }),
     proposeMetrics: (serviceId: string) =>
       request<MetricDto[]>(`/api/knowledge/metrics/propose/${serviceId}`, { method: "POST" }),
+  },
+
+  flyway: {
+    summary: () => request<FlywayServiceSummaryDto[]>("/api/flyway/summary"),
+    migrations: (serviceId: string, state?: string) => {
+      const q = state ? `?state=${encodeURIComponent(state)}` : ""
+      return request<FlywayMigrationRecordDto[]>(`/api/flyway/services/${serviceId}${q}`)
+    },
+    sync: (serviceId: string) =>
+      request<void>(`/api/flyway/services/${serviceId}/sync`, { method: "POST" }),
   },
 }

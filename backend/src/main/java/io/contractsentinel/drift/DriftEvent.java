@@ -51,6 +51,14 @@ public class DriftEvent {
     @Column(length = 300)
     private String apiPath;
 
+    /**
+     * Identifies WHICH field a field-level change affects (null for path-level events).
+     * Part of the dedup key: without it, a second RESPONSE_FIELD_REMOVED on the same
+     * endpoint would be silently swallowed as a duplicate of the first.
+     */
+    @Column(length = 300)
+    private String fieldPath;
+
     @Column(columnDefinition = "text")
     private String detail;
 
@@ -65,7 +73,10 @@ public class DriftEvent {
         REQUEST_REQUIRED_FIELD_ADDED,
         PATH_ADDED,
         RESPONSE_FIELD_ADDED,
-        REQUEST_OPTIONAL_FIELD_ADDED
+        REQUEST_OPTIONAL_FIELD_ADDED,
+        PARAM_REMOVED,
+        PARAM_TYPE_CHANGED,
+        PARAM_BECAME_REQUIRED
     }
 
     public enum Severity {

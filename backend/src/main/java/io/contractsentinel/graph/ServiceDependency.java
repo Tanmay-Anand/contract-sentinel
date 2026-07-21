@@ -59,7 +59,7 @@ public class ServiceDependency {
         return scanFailedAt != null && scanFailedAt.isAfter(verifiedAt);
     }
 
-    public enum DetectionMethod { ACTUATOR_ENV, MANUAL }
+    public enum DetectionMethod { ACTUATOR_ENV, TRACE, MANUAL }
 
     public enum Confidence { HIGH, MEDIUM, LOW }
 }

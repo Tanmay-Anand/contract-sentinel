@@ -7,6 +7,7 @@ export interface ServiceDto {
   createdAt: string
   status: "HEALTHY" | "DRIFTED" | "UNREACHABLE" | "PARSE_FAILED" | "UNKNOWN"
   breakingDriftCount: number
+  healthScore: number | null
 }
 
 export interface SnapshotDto {
@@ -26,6 +27,9 @@ export type ChangeType =
   | "PATH_ADDED"
   | "RESPONSE_FIELD_ADDED"
   | "REQUEST_OPTIONAL_FIELD_ADDED"
+  | "PARAM_REMOVED"
+  | "PARAM_TYPE_CHANGED"
+  | "PARAM_BECAME_REQUIRED"
 
 export type Severity = "BREAKING" | "SAFE"
 
@@ -37,6 +41,7 @@ export interface DriftEventDto {
   severity: Severity
   httpMethod: string | null
   apiPath: string | null
+  fieldPath: string | null
   detail: string | null
   detectedAt: string
   acknowledged: boolean
@@ -307,7 +312,7 @@ export interface ServiceEdgeDto {
   sourceName: string
   targetId: string
   targetName: string
-  detectionMethod: string  // "ACTUATOR_ENV" | "MANUAL"
+  detectionMethod: string  // "ACTUATOR_ENV" | "TRACE" | "MANUAL"
   propertyName: string | null
   confidence: string
   verifiedAt: string
@@ -414,6 +419,7 @@ export interface EndpointPerformanceRow {
   p50Ms: number | null
   p95Ms: number | null
   p99Ms: number | null
+  meanMs: number | null
   errorRatePct: number
   responseSizeBytes: number | null
   p99MedianRatio: number
@@ -427,6 +433,7 @@ export interface EndpointPerformancePoint {
   p50Ms: number | null
   p95Ms: number | null
   p99Ms: number | null
+  meanMs: number | null
   countDelta: number
   errorCount: number
 }
@@ -555,4 +562,47 @@ export interface NlQueryResponse {
   totalMs: number
   llmAttempts: number
   synonymsApplied: string[]
+}
+
+// Flyway Migration Tracker
+export type FlywayState =
+  | "SUCCESS"
+  | "PENDING"
+  | "FAILED"
+  | "OUT_OF_ORDER"
+  | "MISSING_SUCCESS"
+  | "MISSING_FAILED"
+  | "BASELINE"
+  | "IGNORED"
+  | "ABOVE_TARGET"
+  | "FILESYSTEM_ONLY"
+  | "UNKNOWN"
+
+export interface FlywayServiceSummaryDto {
+  serviceId: string
+  serviceName: string
+  totalApplied: number
+  pending: number
+  failed: number
+  outOfOrder: number
+  filesystemOnly: number
+  missingSuccess: number
+  hasIssues: boolean
+}
+
+export interface FlywayMigrationRecordDto {
+  id: string
+  serviceId: string
+  serviceName: string
+  version: string | null
+  description: string | null
+  script: string
+  type: string | null
+  state: FlywayState
+  checksum: number | null
+  installedOn: string | null
+  installedBy: string | null
+  executionTime: number | null
+  source: "ACTUATOR" | "FILESYSTEM"
+  snapshotAt: string
 }

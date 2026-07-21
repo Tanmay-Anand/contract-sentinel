@@ -1,7 +1,7 @@
 package io.contractsentinel.graph;
 
-import tools.jackson.core.type.TypeReference;
-import tools.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.contractsentinel.config.RequestContext;
 import io.contractsentinel.drift.DriftEvent;
 import io.contractsentinel.drift.DriftEventRepository;
@@ -11,6 +11,7 @@ import io.contractsentinel.registry.ServiceRegistryRepository;
 import io.contractsentinel.snapshot.SpecSnapshot;
 import io.contractsentinel.snapshot.SpecSnapshotRepository;
 import io.contractsentinel.stats.OutboundCallCounter;
+import io.contractsentinel.trace.TraceSpan;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -112,24 +113,32 @@ public class DependencyGraphServiceImpl implements DependencyGraphService {
                 if (target.getId().equals(source.getId())) {
                     continue;
                 }
-                int port;
+                URI targetUri;
                 try {
-                    port = URI.create(target.getBaseUrl()).getPort();
+                    targetUri = URI.create(target.getBaseUrl());
                 } catch (Exception ex) {
-                    log.debug("Could not parse port from baseUrl '{}' for service '{}'",
+                    log.debug("Could not parse baseUrl '{}' for service '{}'",
                             target.getBaseUrl(), target.getName());
                     continue;
                 }
-                if (port <= 0) {
-                    continue;
+                String targetHost = targetUri.getHost();
+                int targetPort = targetUri.getPort(); // -1 when not specified
+
+                List<String> matchPatterns = new ArrayList<>();
+                if (targetPort > 0) {
+                    matchPatterns.add("localhost:" + targetPort);
+                    matchPatterns.add("127.0.0.1:" + targetPort);
                 }
-                String localhostPattern = "localhost:" + port;
-                String loopbackPattern = "127.0.0.1:" + port;
+                // Match real host:port so non-local deployments (staging/prod) are detected
+                if (targetHost != null && !targetHost.equals("localhost") && !targetHost.equals("127.0.0.1")) {
+                    matchPatterns.add(targetPort > 0 ? targetHost + ":" + targetPort : targetHost);
+                }
+                // Full baseUrl as fallback (env property may store entire URL)
+                matchPatterns.add(target.getBaseUrl());
 
                 for (Map.Entry<String, String> propEntry : flatProps.entrySet()) {
                     String propValue = propEntry.getValue();
-                    if (propValue != null
-                            && (propValue.contains(localhostPattern) || propValue.contains(loopbackPattern))) {
+                    if (propValue != null && matchPatterns.stream().anyMatch(propValue::contains)) {
                         upsertEdge(source, target, propEntry.getKey(),
                                 ServiceDependency.DetectionMethod.ACTUATOR_ENV,
                                 ServiceDependency.Confidence.HIGH,
@@ -237,6 +246,47 @@ public class DependencyGraphServiceImpl implements DependencyGraphService {
                 new ArrayList<>(transitive),
                 direct.size() + transitive.size()
         );
+    }
+
+    @Override
+    @Transactional
+    public void deriveEdgesFromSpans(List<TraceSpan> spans) {
+        if (spans == null || spans.isEmpty()) return;
+
+        // Build parentSpanId → children map within this batch
+        Map<String, List<TraceSpan>> childrenByParent = new HashMap<>();
+        for (TraceSpan s : spans) {
+            if (s.getParentSpanId() != null) {
+                childrenByParent.computeIfAbsent(s.getParentSpanId(), k -> new ArrayList<>()).add(s);
+            }
+        }
+
+        // Index registered services by lower-cased name for fast lookup
+        List<ServiceRegistry> activeServices = serviceRegistryRepository.findAllByActiveTrue();
+        Map<String, ServiceRegistry> byName = new HashMap<>();
+        for (ServiceRegistry svc : activeServices) {
+            byName.put(svc.getName().toLowerCase(), svc);
+        }
+
+        Instant now = Instant.now();
+        for (TraceSpan span : spans) {
+            // A CLIENT span in service A calling service B produces a SERVER child span in B
+            if (!"CLIENT".equalsIgnoreCase(span.getKind())) continue;
+            List<TraceSpan> children = childrenByParent.get(span.getSpanId());
+            if (children == null) continue;
+            for (TraceSpan child : children) {
+                if (!"SERVER".equalsIgnoreCase(child.getKind())) continue;
+                if (span.getServiceName() == null || child.getServiceName() == null) continue;
+                if (span.getServiceName().equalsIgnoreCase(child.getServiceName())) continue;
+                ServiceRegistry src = byName.get(span.getServiceName().toLowerCase());
+                ServiceRegistry tgt = byName.get(child.getServiceName().toLowerCase());
+                if (src == null || tgt == null) continue;
+                String label = child.getHttpMethod() != null && child.getHttpPath() != null
+                        ? child.getHttpMethod().toUpperCase() + " " + child.getHttpPath() : null;
+                upsertEdge(src, tgt, label, ServiceDependency.DetectionMethod.TRACE,
+                        ServiceDependency.Confidence.MEDIUM, now);
+            }
+        }
     }
 
     @Transactional
