@@ -21,4 +21,12 @@ public interface DependencyGraphService {
     BlastRadiusDto getBlastRadius(UUID serviceId);
 
     void deriveEdgesFromSpans(List<TraceSpan> spans);
+
+    /**
+     * Re-derives trace edges from spans persisted in the last {@code sinceMinutes}.
+     * Needed because a cross-service CLIENT/SERVER pair arrives in separate ingest
+     * batches (each service exports independently), so per-batch derivation in
+     * {@link #deriveEdgesFromSpans(List)} can never match them.
+     */
+    void deriveEdgesFromRecentSpans(int sinceMinutes);
 }

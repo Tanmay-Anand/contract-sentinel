@@ -58,7 +58,7 @@ public class SpecFetcherScheduler {
     @Value("${sentinel.traces.retention-hours:24}")
     private int traceRetentionHours;
 
-    /** A spec larger than this goes straight to a TEXT column and the JVM heap â€” reject it. */
+    /** A spec larger than this goes straight to a TEXT column and the JVM heap — reject it. */
     @Value("${sentinel.poll.max-spec-bytes:10485760}")
     private int maxSpecBytes;
 
@@ -159,6 +159,21 @@ public class SpecFetcherScheduler {
         }
     }
 
+    // Cross-service CLIENT/SERVER span pairs arrive in separate ingest batches (each
+    // service exports independently), so trace edges must also be derived from the DB
+    // where the full trace has been assembled.
+    @Scheduled(
+            fixedDelayString = "${sentinel.graph.trace-edge-interval-ms:120000}",
+            initialDelayString = "${sentinel.poll.initial-delay-ms:15000}"
+    )
+    public void deriveTraceEdges() {
+        try {
+            dependencyGraphService.deriveEdgesFromRecentSpans(10);
+        } catch (Exception e) {
+            log.warn("Trace edge derivation failed: {}", e.getMessage());
+        }
+    }
+
     public void pollService(ServiceRegistry service) {
         String specUrl = service.getBaseUrl() + service.getSpecPath();
         log.info("Polling spec from {}", specUrl);
@@ -177,7 +192,7 @@ public class SpecFetcherScheduler {
             long durationMs = System.currentTimeMillis() - startMs;
 
             if (specJson != null && specJson.length() > maxSpecBytes) {
-                log.warn("Spec from {} is {} chars â€” exceeds cap of {} bytes; treating as parse failure",
+                log.warn("Spec from {} is {} chars — exceeds cap of {} bytes; treating as parse failure",
                         specUrl, specJson.length(), maxSpecBytes);
                 snapshotRepository.save(SpecSnapshot.builder()
                         .service(service)
@@ -195,7 +210,7 @@ public class SpecFetcherScheduler {
                 return;
             }
 
-            // Successful fetch â€” clear failure tracking and emit recovery if needed.
+            // Successful fetch — clear failure tracking and emit recovery if needed.
             onSuccess(service);
 
             callCounter.incSpecPolls();
@@ -248,7 +263,7 @@ public class SpecFetcherScheduler {
 
         int count = consecutiveFailures.merge(service.getId(), 1, Integer::sum);
         if (count >= flapThreshold && alertedUnhealthy.add(service.getId())) {
-            // Threshold crossed for the first time â€” fire event + alert.
+            // Threshold crossed for the first time — fire event + alert.
             alertService.evaluateUnreachable(service.getId(), service.getName());
             eventPublisher.publish("health.changed", Map.of(
                     "serviceId", service.getId().toString(),

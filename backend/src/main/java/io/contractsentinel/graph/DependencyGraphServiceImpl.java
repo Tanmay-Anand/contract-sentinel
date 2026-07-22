@@ -1,7 +1,7 @@
 package io.contractsentinel.graph;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import io.contractsentinel.config.RequestContext;
 import io.contractsentinel.drift.DriftEvent;
 import io.contractsentinel.drift.DriftEventRepository;
@@ -12,13 +12,16 @@ import io.contractsentinel.snapshot.SpecSnapshot;
 import io.contractsentinel.snapshot.SpecSnapshotRepository;
 import io.contractsentinel.stats.OutboundCallCounter;
 import io.contractsentinel.trace.TraceSpan;
+import io.contractsentinel.trace.TraceSpanRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClient;
 
 import java.net.URI;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.stream.*;
@@ -34,6 +37,7 @@ public class DependencyGraphServiceImpl implements DependencyGraphService {
     private final DriftEventRepository driftEventRepository;
     private final OutboundLatencyCollector outboundLatencyCollector;
     private final OutboundCallCounter callCounter;
+    private final TraceSpanRepository traceSpanRepository;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final RestClient restClient = RestClient.builder().build();
@@ -287,6 +291,14 @@ public class DependencyGraphServiceImpl implements DependencyGraphService {
                         ServiceDependency.Confidence.MEDIUM, now);
             }
         }
+    }
+
+    @Override
+    @Transactional
+    public void deriveEdgesFromRecentSpans(int sinceMinutes) {
+        Instant after = Instant.now().minus(Duration.ofMinutes(Math.max(1, sinceMinutes)));
+        List<TraceSpan> spans = traceSpanRepository.findByReceivedAtAfter(after, PageRequest.of(0, 5000));
+        deriveEdgesFromSpans(spans);
     }
 
     @Transactional
