@@ -59,7 +59,7 @@ public class TraceServiceImpl implements TraceService {
         if (!noisePathPrefixes.isEmpty()) {
             for (ZipkinSpanDto s : spans) {
                 Map<String, String> tags = s.tags() != null ? s.tags() : Map.of();
-                String path = firstTag(tags, "http.path", "http.route", "uri");
+                String path = firstTag(tags, "http.path", "url.path", "http.route", "uri");
                 if (path != null && isNoisePath(path)) {
                     if (noiseTraceIds.isEmpty()) noiseTraceIds = new HashSet<>();
                     noiseTraceIds.add(s.traceId());
@@ -86,9 +86,9 @@ public class TraceServiceImpl implements TraceService {
                     .kind(s.kind())
                     .startEpochMicros(s.timestamp() != null ? s.timestamp() : 0L)
                     .durationMicros(s.duration() != null ? s.duration() : 0L)
-                    .httpMethod(firstTag(tags, "http.method", "method"))
-                    .httpPath(firstTag(tags, "http.path", "http.route", "uri"))
-                    .httpStatus(parseStatus(firstTag(tags, "http.status_code", "status")))
+                    .httpMethod(firstTag(tags, "http.method", "http.request.method", "method"))
+                    .httpPath(firstTag(tags, "http.path", "url.path", "http.route", "uri"))
+                    .httpStatus(parseStatus(firstTag(tags, "http.status_code", "http.response.status_code", "status")))
                     .tagsJson(writeTags(tags))
                     .build());
         }

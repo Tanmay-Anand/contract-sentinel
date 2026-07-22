@@ -1,8 +1,11 @@
 package io.contractsentinel.migration;
 
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.properties.bind.Bindable;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.core.env.Environment;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,14 +40,24 @@ public class FlywayMigrationServiceImpl implements FlywayMigrationService {
 
     private final CsMigrationRecordRepository repository;
     private final ObjectMapper objectMapper;
+    private final Environment environment;
 
     /**
      * Per-service directory paths configured in application.yaml under
      * {@code sentinel.flyway.migration-dirs}. Key = service name as stored in
      * {@code cs_service_registry.name}. Absent keys mean no filesystem scan for that service.
+     * Bound via {@link Binder} because a nested YAML map cannot be resolved through a
+     * {@code ${...}} placeholder.
      */
-    @Value("#{${sentinel.flyway.migration-dirs:{}}}")
-    private Map<String, String> migrationDirs;
+    private Map<String, String> migrationDirs = Map.of();
+
+    @PostConstruct
+    void bindMigrationDirs() {
+        migrationDirs = Binder.get(environment)
+                .bind("sentinel.flyway.migration-dirs", Bindable.mapOf(String.class, String.class))
+                .orElse(Map.of());
+        log.info("Flyway filesystem scan configured for {} service(s)", migrationDirs.size());
+    }
 
     private final RestClient restClient = RestClient.builder()
             .requestFactory(withReadTimeout(
@@ -156,7 +169,7 @@ public class FlywayMigrationServiceImpl implements FlywayMigrationService {
             Optional<CsMigrationRecord> existing = repository
                     .findByServiceIdAndScript(service.getId(), filename);
             if (existing.isPresent() && SOURCE_ACTUATOR.equals(existing.get().getSource())) {
-                continue; // actuator already tracks this â€” don't downgrade
+                continue; // actuator already tracks this — don't downgrade
             }
             if (existing.isEmpty()) {
                 CsMigrationRecord record = CsMigrationRecord.builder()
@@ -220,7 +233,7 @@ public class FlywayMigrationServiceImpl implements FlywayMigrationService {
         return records.stream().map(FlywayMigrationRecordDto::from).toList();
     }
 
-    // â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── helpers ──────────────────────────────────────────────────────────────
 
     private static String contextPathFrom(String specPath) {
         if (specPath == null) return "";
@@ -230,7 +243,7 @@ public class FlywayMigrationServiceImpl implements FlywayMigrationService {
 
     /**
      * Spring Boot actuator nests migrations under:
-     * contexts â†’ {contextName} â†’ flywayBeans â†’ {beanName} â†’ migrations
+     * contexts → {contextName} → flywayBeans → {beanName} → migrations
      */
     private static JsonNode findMigrationsArray(JsonNode root) {
         JsonNode contexts = root.get("contexts");
